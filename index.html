@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Forecasts</title>
+	<style>
+		body {
+			margin-left: 10%;
+			margin-right: 10%;
+			font-family: sans-serif;
+		}
+		x-forecastlist, #allforecasts {
+			display: block;
+			margin: 0 auto;
+		}
+		h1 {
+			text-align: center;
+		}
+		h1 a {
+			color: black;
+			text-decoration: none;
+		}	
+	</style>
+</head>
+<body>
+	
+<x-forecastlist></x-forecastlist>
+
+<script>
+class XForecastList extends HTMLElement {
+	#allForecasts = null;
+	#forecastsData = null;
+	
+	constructor() {
+		super();
+		this.innerHTML = `
+			<h1><a href="/">Forecasts</a></h1>
+			<div id="allforecasts"></div>
+			<button>Add New Forecast</button>
+		`;
+		this.#allForecasts = this.querySelector('#allforecasts');
+		this.renderPage();
+	}
+
+	async renderPage() {
+		let res = await fetch('/forecasts');
+		const statusCode = res.status;
+		if (statusCode == 200) {
+			this.#allForecasts.hidden = false;
+			let d = await res.json();
+			this.renderForecasts(d);
+		}
+	}
+
+	async renderForecasts(forecasts_data) {
+		this.#forecastsData = forecasts_data;
+		let xforecasts = [];
+		let sortedForecasts = Object.values(this.#forecastsData['Forecasts']).sort((a, b) => {
+        	return a.Title.localeCompare(b.Title);
+    	});
+		for await (const [_, fc] of sortedForecasts.entries()) {
+			let f = document.createElement('x-forecast');
+			await f.init(fc);			
+			xforecasts.push(f);
+		}
+		this.#allForecasts.replaceChildren(...xforecasts);
+	}
+}
+
+class XForecast extends HTMLElement {
+	forecast = null;
+
+	getDisplayedState() {
+		// pass
+	}
+
+	async init(forecast) {
+		this.forecast = forecast;
+		await this.update();
+	}
+
+	async update() {
+		this.innerHTML = await this.jobHTML();
+		this.bindEvents();
+	}
+
+	bindEvents() {
+		this.unbindEvents();
+		// pass
+	}
+	
+	unbindEvents() {
+		// pass
+	}
+	
+	async forecastHTML() {
+		let html = '<h1>Hello</h1>'
+		return html;
+	}
+
+	formatDateTime(d) {
+		return (
+			d.getDate().toString().padStart(2, '0') + "-" +
+			(d.getMonth()+1).toString().padStart(2, '0') + "-" +
+			d.getFullYear() + " " + 
+			d.getHours().toString().padStart(2, '0') + ":" + 
+			d.getMinutes().toString().padStart(2, '0') + ":" +
+			d.getSeconds().toString().padStart(2, '0')
+		);
+	}
+}
+
+function escapeHTML(str) {
+	const div = document.createElement('div');
+	div.textContent = str;
+	return div.innerHTML;
+}
+
+customElements.define('x-forecast', XForecast);
+customElements.define('x-forecastlist', XForecastList);
+
+</script>
+</body>
+</html>
