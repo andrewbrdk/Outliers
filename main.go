@@ -49,10 +49,10 @@ func main() {
 func initConfig() {
 	CONF.port = ":9090"
 	CONF.confFile = "forecasts.toml"
-	if port := os.Getenv("PORT"); port != "" {
+	if port := os.Getenv("FCAST_PORT"); port != "" {
 		CONF.port = ":" + port
 	}
-	if confFile := os.Getenv("CONF_FILE"); confFile != "" {
+	if confFile := os.Getenv("FCAST_CONF_FILE"); confFile != "" {
 		CONF.confFile = confFile
 	}
 }

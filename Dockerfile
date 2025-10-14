@@ -1,0 +1,16 @@
+FROM golang:1.21-alpine
+
+RUN apk add --no-cache \
+    bash \
+    git
+
+ADD main.go go.mod index.html /app/
+
+WORKDIR /app
+RUN go get fcast
+RUN go build
+RUN rm main.go go.mod index.html
+
+EXPOSE 9090
+
+ENTRYPOINT ["/app/fcast"]
