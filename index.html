@@ -83,6 +83,7 @@ class XForecast extends HTMLElement {
 	async update() {
 		this.innerHTML = await this.forecastHTML();
 		this.bindEvents();
+		this.drawChart();
 	}
 
 	bindEvents() {
@@ -102,6 +103,7 @@ class XForecast extends HTMLElement {
 	async forecastHTML() {
 		let html = `
 		<h3>${escapeHTML(this.forecast.Title)}</h3>
+		<canvas id="forecastChart" height="200"></canvas>
 		<p>ConnectionString: ${escapeHTML(this.forecast.ConnectionString)}</p>
 		<p>DataTable: ${escapeHTML(this.forecast.DataTable)}</p>
 		<p>OutputTable: ${escapeHTML(this.forecast.OutputTable)}</p>
@@ -109,6 +111,76 @@ class XForecast extends HTMLElement {
 		<p>ForecastModel: ${escapeHTML(this.forecast.ForecastModel)}</p>
 		<button class="update-forecast-btn">Update Forecast</button>`;
 		return html;
+	}
+
+	async drawChart() {
+		const id = this.forecast.Id;
+		const res = await fetch(`/api/forecast/plot?id=${id}`);
+		const data = await res.json();
+
+		const ctx = this.querySelector('#forecastChart');
+		if (!ctx) return;
+
+		if (typeof Chart === 'undefined') {
+			await import('https://cdn.jsdelivr.net/npm/chart.js');
+		}
+
+		const allPoints = [...data.original, ...data.forecast];
+		const labels = [...new Set(allPoints.map(p => p.T))].sort((a, b) => Number(a) - Number(b));
+		const origMap = new Map(data.original.map(p => [p.T, p.Value]));
+		const forecastMap = new Map(data.forecast.map(p => [p.T, p.Value]));
+		const origValues = labels.map(T => origMap.get(T) ?? null);
+		const forecastValues = labels.map(T => forecastMap.get(T) ?? null);
+
+		new Chart(ctx, {
+		type: 'line',
+		data: {
+			labels,
+			datasets: [
+			{
+				label: 'Original',
+				data: origValues,
+				borderColor: 'blue',
+				tension: 0.2,
+				spanGaps: true,
+			},
+			{
+				label: 'Forecast',
+				data: forecastValues,
+				borderColor: 'orange',
+				borderDash: [5, 5],
+				tension: 0.2,
+				spanGaps: true,
+			},
+			],
+		},
+		options: {
+			responsive: true,
+			interaction: { mode: 'index', intersect: false },
+			stacked: false,
+			plugins: {
+			title: {
+				display: true,
+				text: 'Original vs Forecast',
+			},
+			},
+			scales: {
+			y: {
+				beginAtZero: true,
+				title: {
+				display: true,
+				text: 'Value',
+				},
+			},
+			x: {
+				title: {
+				display: true,
+				text: 'Date',
+				},
+			},
+			},
+		},
+		});
 	}
 
 	async onUpdateForecast() {

@@ -47,8 +47,8 @@ type Forecast struct {
 }
 
 type Point struct {
-	t     int64
-	value float64
+	T     int64
+	Value float64
 }
 
 func main() {
@@ -160,7 +160,7 @@ func readTimeSeries(fc *Forecast) ([]Point, error) {
 	var data []Point
 	for rows.Next() {
 		var p Point
-		if err := rows.Scan(&p.t, &p.value); err != nil {
+		if err := rows.Scan(&p.T, &p.Value); err != nil {
 			errorLog.Printf("Scan error: %v", err)
 		}
 		data = append(data, p)
@@ -185,8 +185,8 @@ func trainAndPredict(fc *Forecast, data []Point) ([]Point, error) {
 	var forecast []Point
 	for i := 1; i <= fc.ForecastHorizon; i++ {
 		fcPoint := Point{
-			t:     lastPoint.t + int64(i),
-			value: lastPoint.value,
+			T:     lastPoint.T + int64(i),
+			Value: lastPoint.Value,
 		}
 		forecast = append(forecast, fcPoint)
 	}
@@ -219,8 +219,8 @@ func writeForecast(fc *Forecast, forecast []Point) error {
 			INSERT INTO %s (dt, step, value) VALUES (NULL, $1, $2)
 		`, destTable)
 
-		if _, err := db.ExecContext(ctx, upsertQuery, p.t, p.value); err != nil {
-			errorLog.Printf("Error inserting forecast for %d: %v", p.t, err)
+		if _, err := db.ExecContext(ctx, upsertQuery, p.T, p.Value); err != nil {
+			errorLog.Printf("Error inserting forecast for %d: %v", p.T, err)
 			return err
 		}
 	}
@@ -237,6 +237,7 @@ func httpServer() {
 	http.HandleFunc("/", httpIndex)
 	http.HandleFunc("/forecasts", httpForecasts)
 	http.HandleFunc("/api/forecast/update", forecastUpdateHandler)
+	http.HandleFunc("/api/forecast/plot", forecastPlotHandler)
 	log.Fatal(http.ListenAndServe(CONF.port, nil))
 }
 
@@ -287,4 +288,70 @@ func forecastUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(Response{Status: "ok"})
+}
+
+func forecastPlotHandler(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	if idStr == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	var fc *Forecast
+	if fc = FC.Forecasts[id]; fc == nil {
+		http.Error(w, "forecast not found", http.StatusNotFound)
+		return
+	}
+
+	db, err := sql.Open("pgx", fc.ConnectionString)
+	if err != nil {
+		log.Println("DB error:", err)
+		http.Error(w, "db connection failed", http.StatusInternalServerError)
+		return
+	}
+	defer db.Close()
+
+	selectOrigQuery := fmt.Sprintf(`
+		select 
+			dt - MIN(dt) OVER () AS ts, 
+			views as value 
+		from %s
+		order by ts asc
+	`, fc.DataTable)
+	originalRows, _ := db.Query(selectOrigQuery)
+	selectForecastQuery := fmt.Sprintf(`
+		select 
+			step as ts,
+			value
+		from %s
+		order by ts asc
+	`, fc.OutputTable)
+	forecastRows, _ := db.Query(selectForecastQuery)
+	defer originalRows.Close()
+	defer forecastRows.Close()
+
+	var original, forecast []Point
+	for originalRows.Next() {
+		var p Point
+		originalRows.Scan(&p.T, &p.Value)
+		original = append(original, p)
+	}
+	for forecastRows.Next() {
+		var p Point
+		forecastRows.Scan(&p.T, &p.Value)
+		forecast = append(forecast, p)
+	}
+
+	type PlotResponse struct {
+		Original []Point `json:"original"`
+		Forecast []Point `json:"forecast"`
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(PlotResponse{Original: original, Forecast: forecast})
 }
