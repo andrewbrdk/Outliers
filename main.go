@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/BurntSushi/toml"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 //go:embed index.html
@@ -36,13 +40,27 @@ type Forecast struct {
 	ConnectionString string `toml:"connection"`
 	DataTable        string `toml:"source"`
 	OutputTable      string `toml:"output"`
+	ForecastHorizon  int    `toml:"forecast_horizon"`
+	ForecastModel    string `toml:"forecast_model"`
+}
+
+type Point struct {
+	t     int64
+	value float64
 }
 
 func main() {
 	initConfig()
 	infoLog = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 	errorLog = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
-	loadForecasts(CONF.confFile)
+	FC.loadForecasts(CONF.confFile)
+	// todo: run forecasts on schedule
+	for _, fc := range FC.Forecasts {
+		err := doForecast(fc)
+		if err != nil {
+			errorLog.Printf("Error doing forecast '%s': %v", fc.Title, err)
+		}
+	}
 	httpServer()
 }
 
@@ -57,7 +75,7 @@ func initConfig() {
 	}
 }
 
-func loadForecasts(filename string) error {
+func (FC *Forecasts) loadForecasts(filename string) error {
 	f, err := os.ReadFile(filename)
 	if err != nil {
 		errorLog.Printf("Error reading file %s: %v\n", filename, err)
@@ -99,6 +117,64 @@ func validateForecast(f *Forecast) error {
 		errorLog.Printf("Forecast '%s' missing output table", f.Title)
 		return errors.New("Invalid Forecast: missing output table")
 	}
+	return nil
+}
+
+func doForecast(fc *Forecast) error {
+	data, err := readTimeSeries(fc)
+	forecast, err := trainAndPredict(fc, data)
+	if err != nil {
+		return err
+	}
+	err = writeForecast(fc, forecast)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func readTimeSeries(fc *Forecast) ([]Point, error) {
+	infoLog.Printf("Reading time series data from table %s", fc.DataTable)
+	selectQuery := fmt.Sprintf(`
+		select 
+			dt - MIN(dt) OVER () AS ts, 
+			views as value 
+		from %s
+		order by ts asc
+	`, fc.DataTable)
+	ctx := context.Background()
+	db, err := sql.Open("pgx", fc.ConnectionString)
+	if err != nil {
+		errorLog.Printf("Error connecting to Postgres: %v", err)
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, selectQuery)
+	if err != nil {
+		errorLog.Printf("Error reading from table: %v", err)
+	}
+	defer rows.Close()
+
+	var data []Point
+	for rows.Next() {
+		var p Point
+		if err := rows.Scan(&p.t, &p.value); err != nil {
+			errorLog.Printf("Scan error: %v", err)
+		}
+		data = append(data, p)
+	}
+	if err := rows.Err(); err != nil {
+		errorLog.Printf("Rows error: %v", err)
+	}
+	return data, nil
+}
+
+func trainAndPredict(fc *Forecast, data []Point) ([]Point, error) {
+	infoLog.Printf("Training model %s for forecast horizon %d", fc.ForecastModel, fc.ForecastHorizon)
+	return nil, nil
+}
+
+func writeForecast(fc *Forecast, forecast []Point) error {
+	infoLog.Printf("Writing forecast to table %s", fc.OutputTable)
 	return nil
 }
 

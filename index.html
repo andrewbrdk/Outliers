@@ -99,7 +99,9 @@ class XForecast extends HTMLElement {
 		<h3>${escapeHTML(this.forecast.Title)}</h3>
 		<p>ConnectionString: ${escapeHTML(this.forecast.ConnectionString)}</p>
 		<p>DataTable: ${escapeHTML(this.forecast.DataTable)}</p>
-		<p>OutputTable: ${escapeHTML(this.forecast.OutputTable)}</p>`
+		<p>OutputTable: ${escapeHTML(this.forecast.OutputTable)}</p>
+		<p>ForecastHorizon: ${this.forecast.ForecastHorizon}</p>
+		<p>ForecastModel: ${escapeHTML(this.forecast.ForecastModel)}</p>`;
 		return html;
 	}
 
