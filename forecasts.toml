@@ -1,6 +1,7 @@
 [[forecasts]]
 title = "wiki_pageviews"
-connection = "postgres://pguser:password123@postgres:5432/forecasts"
+#connection = "postgres://pguser:password123@postgres:5432/forecasts"
+connection = "postgres://pguser:password123@localhost:5432/forecasts"
 source = "wiki_pageviews"
 output = "wiki_pageviews_forecast"
 forecast_horizon = 10

@@ -1,23 +1,23 @@
 services:
-  fcast:
-    image: fcast
-    container_name: fcast_web
-    build:
-      context: ./
-      dockerfile: Dockerfile
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./forecasts.toml:/app/forecasts.toml
-      - /etc/timezone:/etc/timezone:ro
-      - /etc/localtime:/etc/localtime:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-    #environment:
-      #FCAST_CONF_FILE: /app/forecasts.toml
-      #FCAST_PORT: 9090
-      #FCAST_PASSWORD: "qwerty"
+  # fcast:
+  #   image: fcast
+  #   container_name: fcast_web
+  #   build:
+  #     context: ./
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./forecasts.toml:/app/forecasts.toml
+  #     - /etc/timezone:/etc/timezone:ro
+  #     - /etc/localtime:/etc/localtime:ro
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   #environment:
+  #     #FCAST_CONF_FILE: /app/forecasts.toml
+  #     #FCAST_PORT: 9090
+  #     #FCAST_PASSWORD: "qwerty"
 
   postgres:
     image: postgres:16

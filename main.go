@@ -121,6 +121,7 @@ func validateForecast(f *Forecast) error {
 }
 
 func doForecast(fc *Forecast) error {
+	infoLog.Printf("Forecasting %s", fc.Title)
 	data, err := readTimeSeries(fc)
 	forecast, err := trainAndPredict(fc, data)
 	if err != nil {
@@ -134,7 +135,6 @@ func doForecast(fc *Forecast) error {
 }
 
 func readTimeSeries(fc *Forecast) ([]Point, error) {
-	infoLog.Printf("Reading time series data from table %s", fc.DataTable)
 	selectQuery := fmt.Sprintf(`
 		select 
 			dt - MIN(dt) OVER () AS ts, 
@@ -170,11 +170,58 @@ func readTimeSeries(fc *Forecast) ([]Point, error) {
 
 func trainAndPredict(fc *Forecast, data []Point) ([]Point, error) {
 	infoLog.Printf("Training model %s for forecast horizon %d", fc.ForecastModel, fc.ForecastHorizon)
-	return nil, nil
+	if len(data) == 0 {
+		errorLog.Printf("No data points to forecast")
+		return nil, errors.New("No data points to forecast")
+	}
+	if fc.ForecastModel != "naive" {
+		errorLog.Printf("Unsupported model: %s", fc.ForecastModel)
+		return nil, errors.New("Unsupported model: " + fc.ForecastModel)
+	}
+	lastPoint := data[len(data)-1]
+	var forecast []Point
+	for i := 1; i <= fc.ForecastHorizon; i++ {
+		fcPoint := Point{
+			t:     lastPoint.t + int64(i),
+			value: lastPoint.value,
+		}
+		forecast = append(forecast, fcPoint)
+	}
+	infoLog.Printf("Forecast complete, generated %d points", len(forecast))
+	return forecast, nil
 }
 
 func writeForecast(fc *Forecast, forecast []Point) error {
-	infoLog.Printf("Writing forecast to table %s", fc.OutputTable)
+	destTable := fc.OutputTable
+	ctx := context.Background()
+	db, err := sql.Open("pgx", fc.ConnectionString)
+	if err != nil {
+		errorLog.Printf("Error connecting to Postgres: %v", err)
+	}
+	defer db.Close()
+
+	createTableQuery := fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			dt DATE,
+			step int,
+			value numeric
+		)`, destTable)
+	if _, err := db.ExecContext(ctx, createTableQuery); err != nil {
+		errorLog.Printf("Error creating table %s: %v", destTable, err)
+		return err
+	}
+
+	for _, p := range forecast {
+		upsertQuery := fmt.Sprintf(`
+			INSERT INTO %s (dt, step, value) VALUES (NULL, $1, $2)
+		`, destTable)
+
+		if _, err := db.ExecContext(ctx, upsertQuery, p.t, p.value); err != nil {
+			errorLog.Printf("Error inserting forecast for %d: %v", p.t, err)
+			return err
+		}
+	}
+
 	return nil
 }
 
