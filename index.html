@@ -87,11 +87,16 @@ class XForecast extends HTMLElement {
 
 	bindEvents() {
 		this.unbindEvents();
-		// pass
+		const btn = this.querySelector('.update-forecast-btn');
+		if (btn) {
+			btn.addEventListener('click', async () => {
+				await this.onUpdateForecast();
+			});
+		}
 	}
 	
 	unbindEvents() {
-		// pass
+		this.querySelectorAll('button').forEach(btn => btn.onclick = null);
 	}
 	
 	async forecastHTML() {
@@ -101,8 +106,26 @@ class XForecast extends HTMLElement {
 		<p>DataTable: ${escapeHTML(this.forecast.DataTable)}</p>
 		<p>OutputTable: ${escapeHTML(this.forecast.OutputTable)}</p>
 		<p>ForecastHorizon: ${this.forecast.ForecastHorizon}</p>
-		<p>ForecastModel: ${escapeHTML(this.forecast.ForecastModel)}</p>`;
+		<p>ForecastModel: ${escapeHTML(this.forecast.ForecastModel)}</p>
+		<button class="update-forecast-btn">Update Forecast</button>`;
 		return html;
+	}
+
+	async onUpdateForecast() {
+		if (!this.forecast) return;
+
+		try {
+			const res = await fetch(`/api/forecast/update?id=${encodeURIComponent(this.forecast.Id)}`, {
+            	method: 'POST'
+			});
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const result = await res.json();
+			console.log('Forecast updated:', result);
+
+			await this.update();
+		} catch (err) {
+			console.error('Error updating forecast:', err);
+		}
 	}
 
 	formatDateTime(d) {

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/BurntSushi/toml"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -37,6 +38,7 @@ type Config struct {
 
 type Forecast struct {
 	Title            string `toml:"title"`
+	Id               int    `toml:"-"`
 	ConnectionString string `toml:"connection"`
 	DataTable        string `toml:"source"`
 	OutputTable      string `toml:"output"`
@@ -94,6 +96,7 @@ func (FC *Forecasts) loadForecasts(filename string) error {
 			continue
 		}
 		FC.Forecasts[FC.forecastCounter] = f
+		f.Id = FC.forecastCounter
 		FC.forecastCounter += 1
 	}
 	infoLog.Printf("Loaded %d forecasts from %s", len(FC.Forecasts), filename)
@@ -225,9 +228,15 @@ func writeForecast(fc *Forecast, forecast []Point) error {
 	return nil
 }
 
+type Response struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
 func httpServer() {
 	http.HandleFunc("/", httpIndex)
 	http.HandleFunc("/forecasts", httpForecasts)
+	http.HandleFunc("/api/forecast/update", forecastUpdateHandler)
 	log.Fatal(http.ListenAndServe(CONF.port, nil))
 }
 
@@ -250,4 +259,32 @@ func httpForecasts(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(fData)
+}
+
+func forecastUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	if idStr == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(Response{Status: "error", Message: "missing id"})
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(Response{Status: "error", Message: "invalid id"})
+		return
+	}
+	fc := FC.Forecasts[id]
+	if fc == nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(Response{Status: "error", Message: "forecast not found"})
+		return
+	}
+	if err := doForecast(fc); err != nil {
+		log.Println("Forecast update error:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(Response{Status: "error", Message: err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(Response{Status: "ok"})
 }
