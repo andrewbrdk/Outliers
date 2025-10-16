@@ -4,6 +4,8 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Anomalies</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css">
+	<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
 	<style>
 		body {
 			margin-left: 10%;
@@ -103,7 +105,7 @@ class XAnomaly extends HTMLElement {
 	async HTML() {
 		let html = `
 		<h3>${escapeHTML(this.anomaly.Title)}</h3>
-		<canvas height="200"></canvas>
+		<div class="uplot"></div>
 		<p>ConnectionString: ${escapeHTML(this.anomaly.ConnectionString)}</p>
 		<p>DataTable: ${escapeHTML(this.anomaly.DataTable)}</p>
 		<p>OutputTable: ${escapeHTML(this.anomaly.OutputTable)}</p>
@@ -120,13 +122,6 @@ class XAnomaly extends HTMLElement {
 		const data = await res.json();
 		if (!data || !data.original || !data.forecast) return;
 
-		const ctx = this.querySelector('canvas');
-		if (!ctx) return;
-
-		if (typeof Chart === 'undefined') {
-			await import('https://cdn.jsdelivr.net/npm/chart.js');
-		}
-
 		const allPoints = [...data.original, ...data.forecast];
 		const labels = [...new Set(allPoints.map(p => p.T))].sort((a, b) => Number(a) - Number(b));
 		const origMap = new Map(data.original.map(p => [p.T, p.Value]));
@@ -134,37 +129,35 @@ class XAnomaly extends HTMLElement {
 		const origValues = labels.map(T => origMap.get(T) ?? null);
 		const forecastValues = labels.map(T => forecastMap.get(T) ?? null);
 
-		new Chart(ctx, {
-		type: 'line',
-		data: {
+		const uplotData = [
 			labels,
-			datasets: [
-			{
-				label: 'Original',
-				data: origValues,
-				borderColor: 'blue',
-				tension: 0.2,
-				spanGaps: true,
-			},
-			{
-				label: 'Forecast',
-				data: forecastValues,
-				borderColor: 'orange',
-				borderDash: [5, 5],
-				tension: 0.2,
-				spanGaps: true,
-			},
-			],
-		},
-		options: {
-			responsive: true,
-			interaction: { mode: 'index', intersect: false },
-			stacked: false,
+			origValues,
+			forecastValues,
+		];
+
+		const opts = {
+			title: `Anomaly ID ${id}`,
+			width: 1000,
+			height: 400,
 			scales: {
-				y: {beginAtZero: true},
+				x: { time: false },
+				y: { auto: true },
 			},
-		},
-		});
+			series: [
+				{},
+				{ label: "Original", stroke: "blue", width: 2 },
+				{ label: "Forecast", stroke: "orange", dash: [5, 5], width: 2 },
+			],
+			cursor: {
+				drag: { x: true, y: false },  
+				lock: true,                   
+			},
+			legend: { show: true },
+		};
+
+		//this.querySelectorAll(".uplot").forEach(el => el.remove());
+		const plotEl = document.querySelector("div.uplot");
+		this._plot = new uPlot(opts, uplotData, plotEl);
 	}
 
 	async onCheckAnomalies() {
