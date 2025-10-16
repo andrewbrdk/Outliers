@@ -1,4 +1,4 @@
-module fcast
+module anomalies
 
 go 1.19
 

@@ -7,10 +7,10 @@ RUN apk add --no-cache \
 ADD main.go go.mod index.html /app/
 
 WORKDIR /app
-RUN go get fcast
+RUN go get anomalies
 RUN go build
 RUN rm main.go go.mod index.html
 
 EXPOSE 9090
 
-ENTRYPOINT ["/app/fcast"]
+ENTRYPOINT ["/app/anomalies"]

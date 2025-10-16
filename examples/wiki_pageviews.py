@@ -9,7 +9,7 @@ PGCON = {
     'host': 'localhost', # locally
     #'host': 'clickhouse', # docker
     'port': 5432,
-    'database': 'forecasts',
+    'database': 'anomalies',
     'user': 'pguser', 
     'password': 'password123'
 }

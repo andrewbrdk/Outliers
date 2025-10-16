@@ -22,13 +22,13 @@ var embedded embed.FS
 var infoLog *log.Logger
 var errorLog *log.Logger
 
-var FC Forecasts
+var AD AnomaliesDetectors
 var CONF Config
 
-type Forecasts struct {
-	Forecasts       map[int]*Forecast
-	forecastCounter int
-	ForecastsToml   []*Forecast `toml:"forecasts"`
+type AnomaliesDetectors struct {
+	ADetectors map[int]*ADetector
+	counter    int
+	Parsed     []*ADetector `toml:"timeseries"`
 }
 
 type Config struct {
@@ -36,7 +36,7 @@ type Config struct {
 	confFile string
 }
 
-type Forecast struct {
+type ADetector struct {
 	Title            string `toml:"title"`
 	Id               int    `toml:"-"`
 	ConnectionString string `toml:"connection"`
@@ -55,12 +55,12 @@ func main() {
 	initConfig()
 	infoLog = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 	errorLog = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
-	FC.loadForecasts(CONF.confFile)
+	AD.loadDetectors(CONF.confFile)
 	// todo: run forecasts on schedule
-	for _, fc := range FC.Forecasts {
-		err := doForecast(fc)
+	for _, ad := range AD.ADetectors {
+		err := doForecast(ad)
 		if err != nil {
-			errorLog.Printf("Error doing forecast '%s': %v", fc.Title, err)
+			errorLog.Printf("Error doing forecast '%s': %v", ad.Title, err)
 		}
 	}
 	httpServer()
@@ -68,92 +68,94 @@ func main() {
 
 func initConfig() {
 	CONF.port = ":9090"
-	CONF.confFile = "forecasts.toml"
-	if port := os.Getenv("FCAST_PORT"); port != "" {
+	CONF.confFile = "anomalies.toml"
+	if port := os.Getenv("ANOMALIES_PORT"); port != "" {
 		CONF.port = ":" + port
 	}
-	if confFile := os.Getenv("FCAST_CONF_FILE"); confFile != "" {
+	if confFile := os.Getenv("ANOMALIES_CONF_FILE"); confFile != "" {
 		CONF.confFile = confFile
 	}
 }
 
-func (FC *Forecasts) loadForecasts(filename string) error {
+func (AD *AnomaliesDetectors) loadDetectors(filename string) error {
 	f, err := os.ReadFile(filename)
 	if err != nil {
 		errorLog.Printf("Error reading file %s: %v\n", filename, err)
 		return err
 	}
-	err = toml.Unmarshal(f, &FC)
+	err = toml.Unmarshal(f, AD)
 	if err != nil {
 		errorLog.Printf("Error parsing file %s: %v\n", filename, err)
 		return err
 	}
-	FC.Forecasts = make(map[int]*Forecast)
-	for i, f := range FC.ForecastsToml {
-		err := validateForecast(f)
+	AD.ADetectors = make(map[int]*ADetector)
+	for i, ad := range AD.Parsed {
+		err := validateConf(ad)
 		if err != nil {
-			errorLog.Printf("Skipping invalid forecast at index %d", i)
+			errorLog.Printf("Skipping invalid config at index %d", i)
 			continue
 		}
-		FC.Forecasts[FC.forecastCounter] = f
-		f.Id = FC.forecastCounter
-		FC.forecastCounter += 1
+		AD.ADetectors[AD.counter] = ad
+		ad.Id = AD.counter
+		AD.counter += 1
 	}
-	infoLog.Printf("Loaded %d forecasts from %s", len(FC.Forecasts), filename)
+	infoLog.Printf("Loaded %d configs from %s", len(AD.ADetectors), filename)
 	return nil
 }
 
-func validateForecast(f *Forecast) error {
-	if f.Title == "" {
-		errorLog.Printf("Forecast missing title")
-		return errors.New("Invalid Forecast: missing title")
+func validateConf(ad *ADetector) error {
+	if ad.Title == "" {
+		errorLog.Printf("Config missing title")
+		return errors.New("Invalid Config: missing title")
 	}
-	if f.ConnectionString == "" {
-		errorLog.Printf("Forecast '%s' missing connection string", f.Title)
-		return errors.New("Invalid Forecast: missing connection string")
+	if ad.ConnectionString == "" {
+		errorLog.Printf("Config '%s' missing connection string", ad.Title)
+		return errors.New("Invalid Config: missing connection string")
 	}
-	if f.DataTable == "" {
-		errorLog.Printf("Forecast '%s' missing source table", f.Title)
-		return errors.New("Invalid Forecast: missing source table")
+	if ad.DataTable == "" {
+		errorLog.Printf("Config '%s' missing source table", ad.Title)
+		return errors.New("Invalid Config: missing source table")
 	}
-	if f.OutputTable == "" {
-		errorLog.Printf("Forecast '%s' missing output table", f.Title)
-		return errors.New("Invalid Forecast: missing output table")
+	if ad.OutputTable == "" {
+		errorLog.Printf("Config '%s' missing output table", ad.Title)
+		return errors.New("Invalid Config: missing output table")
 	}
 	return nil
 }
 
-func doForecast(fc *Forecast) error {
-	infoLog.Printf("Forecasting %s", fc.Title)
-	data, err := readTimeSeries(fc)
-	forecast, err := trainAndPredict(fc, data)
+func doForecast(ad *ADetector) error {
+	infoLog.Printf("Forecasting %s", ad.Title)
+	data, err := readTimeSeries(ad)
+	forecast, err := trainAndPredict(ad, data)
 	if err != nil {
 		return err
 	}
-	err = writeForecast(fc, forecast)
+	err = writeForecast(ad, forecast)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func readTimeSeries(fc *Forecast) ([]Point, error) {
+func readTimeSeries(ad *ADetector) ([]Point, error) {
 	selectQuery := fmt.Sprintf(`
 		select 
 			dt - MIN(dt) OVER () AS ts, 
 			views as value 
 		from %s
 		order by ts asc
-	`, fc.DataTable)
+	`, ad.DataTable)
 	ctx := context.Background()
-	db, err := sql.Open("pgx", fc.ConnectionString)
+	db, err := sql.Open("pgx", ad.ConnectionString)
 	if err != nil {
 		errorLog.Printf("Error connecting to Postgres: %v", err)
+		return nil, err
 	}
 	defer db.Close()
 	rows, err := db.QueryContext(ctx, selectQuery)
 	if err != nil {
 		errorLog.Printf("Error reading from table: %v", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -171,19 +173,19 @@ func readTimeSeries(fc *Forecast) ([]Point, error) {
 	return data, nil
 }
 
-func trainAndPredict(fc *Forecast, data []Point) ([]Point, error) {
-	infoLog.Printf("Training model %s for forecast horizon %d", fc.ForecastModel, fc.ForecastHorizon)
+func trainAndPredict(ad *ADetector, data []Point) ([]Point, error) {
+	infoLog.Printf("Training model %s for forecast horizon %d", ad.ForecastModel, ad.ForecastHorizon)
 	if len(data) == 0 {
 		errorLog.Printf("No data points to forecast")
 		return nil, errors.New("No data points to forecast")
 	}
-	if fc.ForecastModel != "naive" {
-		errorLog.Printf("Unsupported model: %s", fc.ForecastModel)
-		return nil, errors.New("Unsupported model: " + fc.ForecastModel)
+	if ad.ForecastModel != "naive" {
+		errorLog.Printf("Unsupported model: %s", ad.ForecastModel)
+		return nil, errors.New("Unsupported model: " + ad.ForecastModel)
 	}
 	lastPoint := data[len(data)-1]
 	var forecast []Point
-	for i := 1; i <= fc.ForecastHorizon; i++ {
+	for i := 1; i <= ad.ForecastHorizon; i++ {
 		fcPoint := Point{
 			T:     lastPoint.T + int64(i),
 			Value: lastPoint.Value,
@@ -194,10 +196,10 @@ func trainAndPredict(fc *Forecast, data []Point) ([]Point, error) {
 	return forecast, nil
 }
 
-func writeForecast(fc *Forecast, forecast []Point) error {
-	destTable := fc.OutputTable
+func writeForecast(ad *ADetector, forecast []Point) error {
+	destTable := ad.OutputTable
 	ctx := context.Background()
-	db, err := sql.Open("pgx", fc.ConnectionString)
+	db, err := sql.Open("pgx", ad.ConnectionString)
 	if err != nil {
 		errorLog.Printf("Error connecting to Postgres: %v", err)
 	}
@@ -235,9 +237,9 @@ type Response struct {
 
 func httpServer() {
 	http.HandleFunc("/", httpIndex)
-	http.HandleFunc("/forecasts", httpForecasts)
-	http.HandleFunc("/api/forecast/update", forecastUpdateHandler)
-	http.HandleFunc("/api/forecast/plot", forecastPlotHandler)
+	http.HandleFunc("/anomalies", httpForecasts)
+	http.HandleFunc("/api/anomalies/update", anomaliesUpdateHandler)
+	http.HandleFunc("/api/anomalies/plot", anomaliesPlotHandler)
 	log.Fatal(http.ListenAndServe(CONF.port, nil))
 }
 
@@ -252,7 +254,7 @@ func httpIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpForecasts(w http.ResponseWriter, r *http.Request) {
-	fData, err := json.Marshal(FC)
+	fData, err := json.Marshal(AD)
 	if err != nil {
 		errorLog.Println(err)
 		http.Error(w, "No Forecasts Found", http.StatusNotFound)
@@ -262,7 +264,7 @@ func httpForecasts(w http.ResponseWriter, r *http.Request) {
 	w.Write(fData)
 }
 
-func forecastUpdateHandler(w http.ResponseWriter, r *http.Request) {
+func anomaliesUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -275,13 +277,13 @@ func forecastUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Response{Status: "error", Message: "invalid id"})
 		return
 	}
-	fc := FC.Forecasts[id]
-	if fc == nil {
+	ad := AD.ADetectors[id]
+	if ad == nil {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(Response{Status: "error", Message: "forecast not found"})
 		return
 	}
-	if err := doForecast(fc); err != nil {
+	if err := doForecast(ad); err != nil {
 		log.Println("Forecast update error:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(Response{Status: "error", Message: err.Error()})
@@ -290,7 +292,7 @@ func forecastUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(Response{Status: "ok"})
 }
 
-func forecastPlotHandler(w http.ResponseWriter, r *http.Request) {
+func anomaliesPlotHandler(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
 		http.Error(w, "missing id", http.StatusBadRequest)
@@ -302,15 +304,15 @@ func forecastPlotHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var fc *Forecast
-	if fc = FC.Forecasts[id]; fc == nil {
+	var ad *ADetector
+	if ad = AD.ADetectors[id]; ad == nil {
 		http.Error(w, "forecast not found", http.StatusNotFound)
 		return
 	}
 
-	db, err := sql.Open("pgx", fc.ConnectionString)
+	db, err := sql.Open("pgx", ad.ConnectionString)
 	if err != nil {
-		log.Println("DB error:", err)
+		errorLog.Println(err)
 		http.Error(w, "db connection failed", http.StatusInternalServerError)
 		return
 	}
@@ -322,28 +324,46 @@ func forecastPlotHandler(w http.ResponseWriter, r *http.Request) {
 			views as value 
 		from %s
 		order by ts asc
-	`, fc.DataTable)
-	originalRows, _ := db.Query(selectOrigQuery)
+	`, ad.DataTable)
+	originalRows, err := db.Query(selectOrigQuery)
+	if err != nil {
+		errorLog.Println(err)
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	defer originalRows.Close()
 	selectForecastQuery := fmt.Sprintf(`
 		select 
 			step as ts,
 			value
 		from %s
 		order by ts asc
-	`, fc.OutputTable)
-	forecastRows, _ := db.Query(selectForecastQuery)
-	defer originalRows.Close()
+	`, ad.OutputTable)
+	forecastRows, err := db.Query(selectForecastQuery)
+	if err != nil {
+		errorLog.Println(err)
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
 	defer forecastRows.Close()
 
 	var original, forecast []Point
 	for originalRows.Next() {
 		var p Point
-		originalRows.Scan(&p.T, &p.Value)
+		if err := originalRows.Scan(&p.T, &p.Value); err != nil {
+			errorLog.Println(err)
+			http.Error(w, "scan failed", http.StatusInternalServerError)
+			return
+		}
 		original = append(original, p)
 	}
 	for forecastRows.Next() {
 		var p Point
-		forecastRows.Scan(&p.T, &p.Value)
+		if err := forecastRows.Scan(&p.T, &p.Value); err != nil {
+			errorLog.Println(err)
+			http.Error(w, "scan failed", http.StatusInternalServerError)
+			return
+		}
 		forecast = append(forecast, p)
 	}
 

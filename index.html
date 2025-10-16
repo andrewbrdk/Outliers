@@ -3,14 +3,14 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Forecasts</title>
+	<title>Anomalies</title>
 	<style>
 		body {
 			margin-left: 10%;
 			margin-right: 10%;
 			font-family: sans-serif;
 		}
-		x-forecastlist, #allforecasts {
+		x-anomalieslist, #allanomalies {
 			display: block;
 			margin: 0 auto;
 		}
@@ -25,73 +25,73 @@
 </head>
 <body>
 	
-<x-forecastlist></x-forecastlist>
+<x-anomalieslist></x-anomalieslist>
 
 <script>
-class XForecastList extends HTMLElement {
-	#allForecasts = null;
-	#forecastsData = null;
+class XAnomaliesList extends HTMLElement {
+	#allanomalies = null;
+	#anomaliesData = null;
 	
 	constructor() {
 		super();
 		this.innerHTML = `
-			<h1><a href="/">Forecasts</a></h1>
-			<div id="allforecasts"></div>
-			<button>Add New Forecast</button>
+			<h1><a href="/">Anomalies</a></h1>
+			<div id="allanomalies"></div>
+			<button>Add Anomaly Check</button>
 		`;
-		this.#allForecasts = this.querySelector('#allforecasts');
+		this.#allanomalies = this.querySelector('#allanomalies');
 		this.renderPage();
 	}
 
 	async renderPage() {
-		let res = await fetch('/forecasts');
+		let res = await fetch('/anomalies');
 		const statusCode = res.status;
 		if (statusCode == 200) {
-			this.#allForecasts.hidden = false;
+			this.#allanomalies.hidden = false;
 			let d = await res.json();
-			this.renderForecasts(d);
+			this.renderAnomalies(d);
 		}
 	}
 
-	async renderForecasts(forecasts_data) {
-		this.#forecastsData = forecasts_data;
-		let xforecasts = [];
-		let sortedForecasts = Object.values(this.#forecastsData['Forecasts']).sort((a, b) => {
+	async renderAnomalies(anomalies_data) {
+		this.#anomaliesData = anomalies_data;
+		let xanomalies = [];
+		let sortedAnomalies = Object.values(this.#anomaliesData['ADetectors']).sort((a, b) => {
         	return a.Title.localeCompare(b.Title);
     	});
-		for await (const [_, fc] of sortedForecasts.entries()) {
-			let f = document.createElement('x-forecast');
+		for await (const [_, fc] of sortedAnomalies.entries()) {
+			let f = document.createElement('x-anomalies');
 			await f.init(fc);			
-			xforecasts.push(f);
+			xanomalies.push(f);
 		}
-		this.#allForecasts.replaceChildren(...xforecasts);
+		this.#allanomalies.replaceChildren(...xanomalies);
 	}
 }
 
-class XForecast extends HTMLElement {
-	forecast = null;
+class XAnomaly extends HTMLElement {
+	anomaly = null;
 
 	getDisplayedState() {
 		// pass
 	}
 
-	async init(forecast) {
-		this.forecast = forecast;
+	async init(anomaly) {
+		this.anomaly = anomaly;
 		await this.update();
 	}
 
 	async update() {
-		this.innerHTML = await this.forecastHTML();
+		this.innerHTML = await this.HTML();
 		this.bindEvents();
 		this.drawChart();
 	}
 
 	bindEvents() {
 		this.unbindEvents();
-		const btn = this.querySelector('.update-forecast-btn');
+		const btn = this.querySelector('.check-anomalies-btn');
 		if (btn) {
 			btn.addEventListener('click', async () => {
-				await this.onUpdateForecast();
+				await this.onCheckAnomalies();
 			});
 		}
 	}
@@ -100,25 +100,27 @@ class XForecast extends HTMLElement {
 		this.querySelectorAll('button').forEach(btn => btn.onclick = null);
 	}
 	
-	async forecastHTML() {
+	async HTML() {
 		let html = `
-		<h3>${escapeHTML(this.forecast.Title)}</h3>
-		<canvas id="forecastChart" height="200"></canvas>
-		<p>ConnectionString: ${escapeHTML(this.forecast.ConnectionString)}</p>
-		<p>DataTable: ${escapeHTML(this.forecast.DataTable)}</p>
-		<p>OutputTable: ${escapeHTML(this.forecast.OutputTable)}</p>
-		<p>ForecastHorizon: ${this.forecast.ForecastHorizon}</p>
-		<p>ForecastModel: ${escapeHTML(this.forecast.ForecastModel)}</p>
-		<button class="update-forecast-btn">Update Forecast</button>`;
+		<h3>${escapeHTML(this.anomaly.Title)}</h3>
+		<canvas height="200"></canvas>
+		<p>ConnectionString: ${escapeHTML(this.anomaly.ConnectionString)}</p>
+		<p>DataTable: ${escapeHTML(this.anomaly.DataTable)}</p>
+		<p>OutputTable: ${escapeHTML(this.anomaly.OutputTable)}</p>
+		<p>ForecastHorizon: ${this.anomaly.ForecastHorizon}</p>
+		<p>ForecastModel: ${escapeHTML(this.anomaly.ForecastModel)}</p>
+		<button class="check-anomalies-btn">Check Anomalies</button>`;
 		return html;
 	}
 
 	async drawChart() {
-		const id = this.forecast.Id;
-		const res = await fetch(`/api/forecast/plot?id=${id}`);
+		const id = this.anomaly.Id;
+		const res = await fetch(`/api/anomalies/plot?id=${id}`);
+		if (!res.ok) return;
 		const data = await res.json();
+		if (!data || !data.original || !data.forecast) return;
 
-		const ctx = this.querySelector('#forecastChart');
+		const ctx = this.querySelector('canvas');
 		if (!ctx) return;
 
 		if (typeof Chart === 'undefined') {
@@ -158,45 +160,27 @@ class XForecast extends HTMLElement {
 			responsive: true,
 			interaction: { mode: 'index', intersect: false },
 			stacked: false,
-			plugins: {
-			title: {
-				display: true,
-				text: 'Original vs Forecast',
-			},
-			},
 			scales: {
-			y: {
-				beginAtZero: true,
-				title: {
-				display: true,
-				text: 'Value',
-				},
-			},
-			x: {
-				title: {
-				display: true,
-				text: 'Date',
-				},
-			},
+				y: {beginAtZero: true},
 			},
 		},
 		});
 	}
 
-	async onUpdateForecast() {
-		if (!this.forecast) return;
+	async onCheckAnomalies() {
+		if (!this.anomaly) return;
 
 		try {
-			const res = await fetch(`/api/forecast/update?id=${encodeURIComponent(this.forecast.Id)}`, {
+			const res = await fetch(`/api/anomalies/update?id=${encodeURIComponent(this.anomaly.Id)}`, {
             	method: 'POST'
 			});
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const result = await res.json();
-			console.log('Forecast updated:', result);
+			console.log('Anomalies checked:', result);
 
 			await this.update();
 		} catch (err) {
-			console.error('Error updating forecast:', err);
+			console.error('Error checking anomalies:', err);
 		}
 	}
 
@@ -218,8 +202,8 @@ function escapeHTML(str) {
 	return div.innerHTML;
 }
 
-customElements.define('x-forecast', XForecast);
-customElements.define('x-forecastlist', XForecastList);
+customElements.define('x-anomalies', XAnomaly);
+customElements.define('x-anomalieslist', XAnomaliesList);
 
 </script>
 </body>
