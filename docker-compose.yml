@@ -1,50 +1,50 @@
 services:
-  # anomalies:
-  #   image: anomalies
-  #   container_name: anomalies_web
+  # outliers:
+  #   image: outliers
+  #   container_name: outliers_web
   #   build:
   #     context: ./
   #     dockerfile: Dockerfile
   #   ports:
   #     - "9090:9090"
   #   volumes:
-  #     - ./anomalies.toml:/app/anomalies.toml
+  #     - ./outliers.toml:/app/outliers.toml
   #     - /etc/timezone:/etc/timezone:ro
   #     - /etc/localtime:/etc/localtime:ro
   #   depends_on:
   #     postgres:
   #       condition: service_healthy
   #   #environment:
-  #     #ANOMALIES_CONF_FILE: /app/anomalies.toml
-  #     #ANOMALIES_PORT: 9090
-  #     #ANOMALIES_PASSWORD: "qwerty"
+  #     #OUTLIERS_CONF: /app/outliers.toml
+  #     #OUTLIERS_PORT: 9090
+  #     #OUTLIERS_PASSWORD: "qwerty"
 
   postgres:
     image: postgres:16
-    container_name: anomalies_postgres
+    container_name: outliers_postgres
     restart: always
     environment:
       POSTGRES_USER: pguser
       POSTGRES_PASSWORD: password123
-      POSTGRES_DB: anomalies
+      POSTGRES_DB: outliers
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pguser -d anomalies"]
+      test: ["CMD-SHELL", "pg_isready -U pguser -d outliers"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   pgweb:
     image: sosedoff/pgweb:latest
-    container_name: anomalies_pgweb
+    container_name: outliers_pgweb
     restart: always
     ports:
       - "8081:8081"
     environment:
-      PGWEB_DATABASE_URL: postgres://pguser:password123@postgres:5432/anomalies?sslmode=disable
+      PGWEB_DATABASE_URL: postgres://pguser:password123@postgres:5432/outliers?sslmode=disable
     depends_on:
       - postgres
 

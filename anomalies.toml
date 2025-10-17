@@ -1,8 +1,0 @@
-[[timeseries]]
-title = "wiki_pageviews"
-#connection = "postgres://pguser:password123@postgres:5432/anomalies"
-connection = "postgres://pguser:password123@localhost:5432/anomalies"
-source = "wiki_pageviews"
-output = "wiki_pageviews_anomalies"
-forecast_horizon = 10
-forecast_model = 'naive'

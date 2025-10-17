@@ -22,13 +22,13 @@ var embedded embed.FS
 var infoLog *log.Logger
 var errorLog *log.Logger
 
-var AD AnomaliesDetectors
+var OTL Outliers
 var CONF Config
 
-type AnomaliesDetectors struct {
-	ADetectors map[int]*ADetector
-	counter    int
-	Parsed     []*ADetector `toml:"timeseries"`
+type Outliers struct {
+	Detectors map[int]*Detector
+	counter   int
+	Parsed    []*Detector `toml:"detectors"`
 }
 
 type Config struct {
@@ -36,14 +36,16 @@ type Config struct {
 	confFile string
 }
 
-type ADetector struct {
-	Title            string `toml:"title"`
-	Id               int    `toml:"-"`
-	ConnectionString string `toml:"connection"`
-	DataTable        string `toml:"source"`
-	OutputTable      string `toml:"output"`
-	ForecastHorizon  int    `toml:"forecast_horizon"`
-	ForecastModel    string `toml:"forecast_model"`
+type Detector struct {
+	Title            string        `toml:"title"`
+	Id               int           `toml:"-"`
+	ConnectionString string        `toml:"connection"`
+	DataTable        string        `toml:"source"`
+	OutputTable      string        `toml:"output"`
+	Backsteps        int           `toml:"backsteps"`
+	DetectionMethod  string        `toml:"detection_method"`
+	points           []Point       `toml:"-"`
+	markedPoints     []MarkedPoint `toml:"-"`
 }
 
 type Point struct {
@@ -51,16 +53,22 @@ type Point struct {
 	Value float64
 }
 
+type MarkedPoint struct {
+	T         int64
+	Value     float64
+	IsOutlier bool
+}
+
 func main() {
 	initConfig()
 	infoLog = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 	errorLog = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
-	AD.loadDetectors(CONF.confFile)
+	OTL.loadDetectors(CONF.confFile)
 	// todo: run forecasts on schedule
-	for _, ad := range AD.ADetectors {
-		err := doForecast(ad)
+	for _, d := range OTL.Detectors {
+		err := d.detectOutliers()
 		if err != nil {
-			errorLog.Printf("Error doing forecast '%s': %v", ad.Title, err)
+			errorLog.Printf("Error doing forecast '%s': %v", d.Title, err)
 		}
 	}
 	httpServer()
@@ -68,138 +76,160 @@ func main() {
 
 func initConfig() {
 	CONF.port = ":9090"
-	CONF.confFile = "anomalies.toml"
-	if port := os.Getenv("ANOMALIES_PORT"); port != "" {
+	CONF.confFile = "outliers.toml"
+	if port := os.Getenv("OUTLIERS_PORT"); port != "" {
 		CONF.port = ":" + port
 	}
-	if confFile := os.Getenv("ANOMALIES_CONF_FILE"); confFile != "" {
+	if confFile := os.Getenv("OUTLIERS_CONF"); confFile != "" {
 		CONF.confFile = confFile
 	}
 }
 
-func (AD *AnomaliesDetectors) loadDetectors(filename string) error {
+func (ot *Outliers) loadDetectors(filename string) error {
 	f, err := os.ReadFile(filename)
 	if err != nil {
 		errorLog.Printf("Error reading file %s: %v\n", filename, err)
 		return err
 	}
-	err = toml.Unmarshal(f, AD)
+	err = toml.Unmarshal(f, ot)
 	if err != nil {
 		errorLog.Printf("Error parsing file %s: %v\n", filename, err)
 		return err
 	}
-	AD.ADetectors = make(map[int]*ADetector)
-	for i, ad := range AD.Parsed {
-		err := validateConf(ad)
+	ot.Detectors = make(map[int]*Detector)
+	for i, d := range ot.Parsed {
+		err := d.validateConf()
 		if err != nil {
 			errorLog.Printf("Skipping invalid config at index %d", i)
 			continue
 		}
-		AD.ADetectors[AD.counter] = ad
-		ad.Id = AD.counter
-		AD.counter += 1
+		ot.Detectors[ot.counter] = d
+		d.Id = ot.counter
+		ot.counter += 1
 	}
-	infoLog.Printf("Loaded %d configs from %s", len(AD.ADetectors), filename)
+	infoLog.Printf("Loaded %d configs from %s", len(ot.Detectors), filename)
 	return nil
 }
 
-func validateConf(ad *ADetector) error {
-	if ad.Title == "" {
+func (d *Detector) validateConf() error {
+	if d.Title == "" {
 		errorLog.Printf("Config missing title")
 		return errors.New("Invalid Config: missing title")
 	}
-	if ad.ConnectionString == "" {
-		errorLog.Printf("Config '%s' missing connection string", ad.Title)
+	if d.ConnectionString == "" {
+		errorLog.Printf("Config '%s' missing connection string", d.Title)
 		return errors.New("Invalid Config: missing connection string")
 	}
-	if ad.DataTable == "" {
-		errorLog.Printf("Config '%s' missing source table", ad.Title)
+	if d.DataTable == "" {
+		errorLog.Printf("Config '%s' missing source table", d.Title)
 		return errors.New("Invalid Config: missing source table")
 	}
-	if ad.OutputTable == "" {
-		errorLog.Printf("Config '%s' missing output table", ad.Title)
+	if d.OutputTable == "" {
+		errorLog.Printf("Config '%s' missing output table", d.Title)
 		return errors.New("Invalid Config: missing output table")
 	}
-	return nil
-}
-
-func doForecast(ad *ADetector) error {
-	infoLog.Printf("Forecasting %s", ad.Title)
-	data, err := readTimeSeries(ad)
-	forecast, err := trainAndPredict(ad, data)
-	if err != nil {
-		return err
-	}
-	err = writeForecast(ad, forecast)
-	if err != nil {
-		return err
+	if d.Backsteps <= 0 {
+		errorLog.Printf("Invalid backsteps: %d", d.Backsteps)
+		return fmt.Errorf("invalid backsteps: %d", d.Backsteps)
 	}
 	return nil
 }
 
-func readTimeSeries(ad *ADetector) ([]Point, error) {
+func (d *Detector) detectOutliers() error {
+	infoLog.Printf("Detecting %s", d.Title)
+	err := d.readTimeSeries()
+	if err != nil {
+		return err
+	}
+	err = d.markOutliers()
+	if err != nil {
+		return err
+	}
+	err = d.writeResults()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (d *Detector) readTimeSeries() error {
 	selectQuery := fmt.Sprintf(`
-		select 
+		select
 			dt - MIN(dt) OVER () AS ts, 
-			views as value 
+			views as value
 		from %s
 		order by ts asc
-	`, ad.DataTable)
+	`, d.DataTable)
 	ctx := context.Background()
-	db, err := sql.Open("pgx", ad.ConnectionString)
+	db, err := sql.Open("pgx", d.ConnectionString)
 	if err != nil {
 		errorLog.Printf("Error connecting to Postgres: %v", err)
-		return nil, err
+		return err
 	}
 	defer db.Close()
 	rows, err := db.QueryContext(ctx, selectQuery)
 	if err != nil {
 		errorLog.Printf("Error reading from table: %v", err)
-		return nil, err
+		return err
 	}
 	defer rows.Close()
 
-	var data []Point
+	//todo: simplify
+	var p Point
 	for rows.Next() {
-		var p Point
 		if err := rows.Scan(&p.T, &p.Value); err != nil {
 			errorLog.Printf("Scan error: %v", err)
 		}
-		data = append(data, p)
+		d.points = append(d.points, Point{T: p.T, Value: p.Value})
 	}
 	if err := rows.Err(); err != nil {
 		errorLog.Printf("Rows error: %v", err)
 	}
-	return data, nil
+	return nil
 }
 
-func trainAndPredict(ad *ADetector, data []Point) ([]Point, error) {
-	infoLog.Printf("Training model %s for forecast horizon %d", ad.ForecastModel, ad.ForecastHorizon)
-	if len(data) == 0 {
-		errorLog.Printf("No data points to forecast")
-		return nil, errors.New("No data points to forecast")
+func (d *Detector) markOutliers() error {
+	infoLog.Printf("Detecting outliers for %s", d.Title)
+	if len(d.points) == 0 {
+		errorLog.Printf("No data")
+		return errors.New("No data")
 	}
-	if ad.ForecastModel != "naive" {
-		errorLog.Printf("Unsupported model: %s", ad.ForecastModel)
-		return nil, errors.New("Unsupported model: " + ad.ForecastModel)
+	if d.DetectionMethod != "mean10prc" {
+		errorLog.Printf("Unsupported detection method: %s", d.DetectionMethod)
+		return errors.New("Unsupported detection method: " + d.DetectionMethod)
 	}
-	lastPoint := data[len(data)-1]
-	var forecast []Point
-	for i := 1; i <= ad.ForecastHorizon; i++ {
-		fcPoint := Point{
-			T:     lastPoint.T + int64(i),
-			Value: lastPoint.Value,
+
+	d.markedPoints = make([]MarkedPoint, d.Backsteps)
+	outlierCount := 0
+	for i := 0; i < d.Backsteps; i++ {
+		sum := 0.0
+		pi := len(d.points) - d.Backsteps + i
+		for j := 0; j < pi; j++ {
+			sum += d.points[j].Value
 		}
-		forecast = append(forecast, fcPoint)
+		mean := sum / float64(pi)
+		lower := mean * 0.9
+		upper := mean * 1.1
+		val := d.points[pi].Value
+		d.markedPoints[i].T = d.points[pi].T
+		d.markedPoints[i].Value = val
+		d.markedPoints[i].IsOutlier = false
+		if val < lower || val > upper {
+			d.markedPoints[i].IsOutlier = true
+			outlierCount++
+		}
 	}
-	infoLog.Printf("Forecast complete, generated %d points", len(forecast))
-	return forecast, nil
+	infoLog.Printf(
+		"Outlier detection complete: %d outliers detected in last %d points (method=%s)",
+		outlierCount, d.Backsteps, d.DetectionMethod,
+	)
+	return nil
 }
 
-func writeForecast(ad *ADetector, forecast []Point) error {
-	destTable := ad.OutputTable
+func (d *Detector) writeResults() error {
+	destTable := d.OutputTable
 	ctx := context.Background()
-	db, err := sql.Open("pgx", ad.ConnectionString)
+	db, err := sql.Open("pgx", d.ConnectionString)
 	if err != nil {
 		errorLog.Printf("Error connecting to Postgres: %v", err)
 	}
@@ -209,20 +239,30 @@ func writeForecast(ad *ADetector, forecast []Point) error {
 		CREATE TABLE IF NOT EXISTS %s (
 			dt DATE,
 			step int,
-			value numeric
+			value numeric,
+			is_outlier boolean,
+			detection_method text,
+			detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(step, detection_method)
 		)`, destTable)
 	if _, err := db.ExecContext(ctx, createTableQuery); err != nil {
 		errorLog.Printf("Error creating table %s: %v", destTable, err)
 		return err
 	}
 
-	for _, p := range forecast {
+	for _, mp := range d.markedPoints {
 		upsertQuery := fmt.Sprintf(`
-			INSERT INTO %s (dt, step, value) VALUES (NULL, $1, $2)
+			INSERT INTO %s (dt, step, value, is_outlier, detection_method, detected_at) 
+			VALUES (NULL, $1, $2, $3, $4, CURRENT_TIMESTAMP)
+			ON CONFLICT (step, detection_method)
+			DO UPDATE SET
+				value = EXCLUDED.value,
+				is_outlier = EXCLUDED.is_outlier,
+				detected_at = EXCLUDED.detected_at
 		`, destTable)
 
-		if _, err := db.ExecContext(ctx, upsertQuery, p.T, p.Value); err != nil {
-			errorLog.Printf("Error inserting forecast for %d: %v", p.T, err)
+		if _, err := db.ExecContext(ctx, upsertQuery, mp.T, mp.Value, mp.IsOutlier, d.DetectionMethod); err != nil {
+			errorLog.Printf("Error inserting outlier for %d: %v", mp.T, err)
 			return err
 		}
 	}
@@ -237,9 +277,9 @@ type Response struct {
 
 func httpServer() {
 	http.HandleFunc("/", httpIndex)
-	http.HandleFunc("/anomalies", httpForecasts)
-	http.HandleFunc("/api/anomalies/update", anomaliesUpdateHandler)
-	http.HandleFunc("/api/anomalies/plot", anomaliesPlotHandler)
+	http.HandleFunc("/outliers", httpOutliers)
+	http.HandleFunc("/outliers/update", outliersUpdateHandler)
+	http.HandleFunc("/outliers/plot", outliersPlotHandler)
 	log.Fatal(http.ListenAndServe(CONF.port, nil))
 }
 
@@ -253,8 +293,8 @@ func httpIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-func httpForecasts(w http.ResponseWriter, r *http.Request) {
-	fData, err := json.Marshal(AD)
+func httpOutliers(w http.ResponseWriter, r *http.Request) {
+	fData, err := json.Marshal(OTL)
 	if err != nil {
 		errorLog.Println(err)
 		http.Error(w, "No Forecasts Found", http.StatusNotFound)
@@ -264,7 +304,7 @@ func httpForecasts(w http.ResponseWriter, r *http.Request) {
 	w.Write(fData)
 }
 
-func anomaliesUpdateHandler(w http.ResponseWriter, r *http.Request) {
+func outliersUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -277,13 +317,13 @@ func anomaliesUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Response{Status: "error", Message: "invalid id"})
 		return
 	}
-	ad := AD.ADetectors[id]
-	if ad == nil {
+	d := OTL.Detectors[id]
+	if d == nil {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(Response{Status: "error", Message: "forecast not found"})
 		return
 	}
-	if err := doForecast(ad); err != nil {
+	if err := d.detectOutliers(); err != nil {
 		log.Println("Forecast update error:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(Response{Status: "error", Message: err.Error()})
@@ -292,7 +332,7 @@ func anomaliesUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(Response{Status: "ok"})
 }
 
-func anomaliesPlotHandler(w http.ResponseWriter, r *http.Request) {
+func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
 		http.Error(w, "missing id", http.StatusBadRequest)
@@ -304,13 +344,13 @@ func anomaliesPlotHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var ad *ADetector
-	if ad = AD.ADetectors[id]; ad == nil {
-		http.Error(w, "forecast not found", http.StatusNotFound)
+	var d *Detector
+	if d = OTL.Detectors[id]; d == nil {
+		http.Error(w, "Detector not found", http.StatusNotFound)
 		return
 	}
 
-	db, err := sql.Open("pgx", ad.ConnectionString)
+	db, err := sql.Open("pgx", d.ConnectionString)
 	if err != nil {
 		errorLog.Println(err)
 		http.Error(w, "db connection failed", http.StatusInternalServerError)
@@ -324,7 +364,7 @@ func anomaliesPlotHandler(w http.ResponseWriter, r *http.Request) {
 			views as value 
 		from %s
 		order by ts asc
-	`, ad.DataTable)
+	`, d.DataTable)
 	originalRows, err := db.Query(selectOrigQuery)
 	if err != nil {
 		errorLog.Println(err)
@@ -332,24 +372,25 @@ func anomaliesPlotHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer originalRows.Close()
-	selectForecastQuery := fmt.Sprintf(`
+	selectOutliersQuery := fmt.Sprintf(`
 		select 
 			step as ts,
-			value
+			value,
+			is_outlier
 		from %s
 		order by ts asc
-	`, ad.OutputTable)
-	forecastRows, err := db.Query(selectForecastQuery)
+	`, d.OutputTable)
+	outliersRows, err := db.Query(selectOutliersQuery)
 	if err != nil {
 		errorLog.Println(err)
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return
 	}
-	defer forecastRows.Close()
+	defer outliersRows.Close()
 
-	var original, forecast []Point
+	var p Point
+	var original []Point
 	for originalRows.Next() {
-		var p Point
 		if err := originalRows.Scan(&p.T, &p.Value); err != nil {
 			errorLog.Println(err)
 			http.Error(w, "scan failed", http.StatusInternalServerError)
@@ -357,21 +398,24 @@ func anomaliesPlotHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		original = append(original, p)
 	}
-	for forecastRows.Next() {
-		var p Point
-		if err := forecastRows.Scan(&p.T, &p.Value); err != nil {
+	var mp MarkedPoint
+	var outliers []MarkedPoint
+	for outliersRows.Next() {
+		if err := outliersRows.Scan(&mp.T, &mp.Value, &mp.IsOutlier); err != nil {
 			errorLog.Println(err)
 			http.Error(w, "scan failed", http.StatusInternalServerError)
 			return
 		}
-		forecast = append(forecast, p)
+		if mp.IsOutlier {
+			outliers = append(outliers, mp)
+		}
 	}
 
 	type PlotResponse struct {
-		Original []Point `json:"original"`
-		Forecast []Point `json:"forecast"`
+		Original []Point       `json:"original"`
+		Outliers []MarkedPoint `json:"outliers"`
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(PlotResponse{Original: original, Forecast: forecast})
+	json.NewEncoder(w).Encode(PlotResponse{Original: original, Outliers: outliers})
 }

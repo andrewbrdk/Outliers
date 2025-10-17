@@ -1,4 +1,4 @@
-module anomalies
+module outliers
 
 go 1.19
 

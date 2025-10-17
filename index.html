@@ -31,54 +31,54 @@
 
 <script>
 class XAnomaliesList extends HTMLElement {
-	#allanomalies = null;
-	#anomaliesData = null;
+	#alldetectors = null;
+	#detectorsData = null;
 	
 	constructor() {
 		super();
 		this.innerHTML = `
-			<h1><a href="/">Anomalies</a></h1>
-			<div id="allanomalies"></div>
-			<button>Add Anomaly Check</button>
+	 		<h1><a href="/">Outliers</a></h1>
+			<div id="alldetectors"></div>
+			<button>Add Outliers Detector</button>
 		`;
-		this.#allanomalies = this.querySelector('#allanomalies');
+		this.#alldetectors = this.querySelector('#alldetectors');
 		this.renderPage();
 	}
 
 	async renderPage() {
-		let res = await fetch('/anomalies');
+		let res = await fetch('/outliers');
 		const statusCode = res.status;
 		if (statusCode == 200) {
-			this.#allanomalies.hidden = false;
+			this.#alldetectors.hidden = false;
 			let d = await res.json();
-			this.renderAnomalies(d);
+			this.renderDetectors(d);
 		}
 	}
 
-	async renderAnomalies(anomalies_data) {
-		this.#anomaliesData = anomalies_data;
-		let xanomalies = [];
-		let sortedAnomalies = Object.values(this.#anomaliesData['ADetectors']).sort((a, b) => {
+	async renderDetectors(data) {
+		this.#detectorsData = data;
+		let xdetectors = [];
+		let sorted = Object.values(this.#detectorsData['Detectors']).sort((a, b) => {
         	return a.Title.localeCompare(b.Title);
     	});
-		for await (const [_, fc] of sortedAnomalies.entries()) {
-			let f = document.createElement('x-anomalies');
+		for await (const [_, fc] of sorted.entries()) {
+			let f = document.createElement('x-detector');
 			await f.init(fc);			
-			xanomalies.push(f);
+			xdetectors.push(f);
 		}
-		this.#allanomalies.replaceChildren(...xanomalies);
+		this.#alldetectors.replaceChildren(...xdetectors);
 	}
 }
 
-class XAnomaly extends HTMLElement {
-	anomaly = null;
+class XDetector extends HTMLElement {
+	detector = null;
 
 	getDisplayedState() {
 		// pass
 	}
 
-	async init(anomaly) {
-		this.anomaly = anomaly;
+	async init(detector) {
+		this.detector = detector;
 		await this.update();
 	}
 
@@ -90,10 +90,10 @@ class XAnomaly extends HTMLElement {
 
 	bindEvents() {
 		this.unbindEvents();
-		const btn = this.querySelector('.check-anomalies-btn');
+		const btn = this.querySelector('.check-outliers-btn');
 		if (btn) {
 			btn.addEventListener('click', async () => {
-				await this.onCheckAnomalies();
+				await this.onCheckOutliers();
 			});
 		}
 	}
@@ -104,39 +104,43 @@ class XAnomaly extends HTMLElement {
 	
 	async HTML() {
 		let html = `
-		<h3>${escapeHTML(this.anomaly.Title)}</h3>
+		<h3>${escapeHTML(this.detector.Title)}</h3>
 		<div class="uplot"></div>
-		<p>ConnectionString: ${escapeHTML(this.anomaly.ConnectionString)}</p>
-		<p>DataTable: ${escapeHTML(this.anomaly.DataTable)}</p>
-		<p>OutputTable: ${escapeHTML(this.anomaly.OutputTable)}</p>
-		<p>ForecastHorizon: ${this.anomaly.ForecastHorizon}</p>
-		<p>ForecastModel: ${escapeHTML(this.anomaly.ForecastModel)}</p>
-		<button class="check-anomalies-btn">Check Anomalies</button>`;
+		<p>ConnectionString: ${escapeHTML(this.detector.ConnectionString)}</p>
+		<p>DataTable: ${escapeHTML(this.detector.DataTable)}</p>
+		<p>OutputTable: ${escapeHTML(this.detector.OutputTable)}</p>
+		<p>Backsteps: ${this.detector.Backsteps}</p>
+		<p>DetectionMethod: ${escapeHTML(this.detector.DetectionMethod)}</p>
+		<button class="check-outliers-btn">Check Outliers</button>`;
 		return html;
 	}
 
 	async drawChart() {
-		const id = this.anomaly.Id;
-		const res = await fetch(`/api/anomalies/plot?id=${id}`);
+		const id = this.detector.Id;
+		const res = await fetch(`/outliers/plot?id=${id}`);
 		if (!res.ok) return;
 		const data = await res.json();
-		if (!data || !data.original || !data.forecast) return;
+		if (!data || !data.original || !data.outliers) return;
 
-		const allPoints = [...data.original, ...data.forecast];
-		const labels = [...new Set(allPoints.map(p => p.T))].sort((a, b) => Number(a) - Number(b));
+		const labels = [...new Set([
+			...data.original.map(p => p.T),
+			...data.outliers.map(p => p.T)
+		])].sort((a, b) => Number(a) - Number(b));
+
 		const origMap = new Map(data.original.map(p => [p.T, p.Value]));
-		const forecastMap = new Map(data.forecast.map(p => [p.T, p.Value]));
+		const outliersMap = new Map(data.outliers.map(p => [p.T, p.Value]));
+
 		const origValues = labels.map(T => origMap.get(T) ?? null);
-		const forecastValues = labels.map(T => forecastMap.get(T) ?? null);
+		const outliersValues = labels.map(T => outliersMap.get(T) ?? null);
 
 		const uplotData = [
 			labels,
 			origValues,
-			forecastValues,
+			outliersValues,
 		];
 
 		const opts = {
-			title: `Anomaly ID ${id}`,
+			title: `Outliers ID ${id}`,
 			width: 1000,
 			height: 400,
 			scales: {
@@ -144,13 +148,23 @@ class XAnomaly extends HTMLElement {
 				y: { auto: true },
 			},
 			series: [
-				{},
-				{ label: "Original", stroke: "blue", width: 2 },
-				{ label: "Forecast", stroke: "orange", dash: [5, 5], width: 2 },
+				{}, // x values
+				{ 
+					label: "Original", 
+					stroke: "blue", 
+					width: 2, 
+					points: { show: false } 
+				},
+				{ 
+					label: "Outliers", 
+					stroke: "transparent",   // no line
+					fill: "transparent",
+					points: {show: true, size: 6, stroke: "red", fill: "red",},
+				},
 			],
 			cursor: {
-				drag: { x: true, y: false },  
-				lock: true,                   
+				drag: { x: true, y: false },
+				lock: true,
 			},
 			legend: { show: true },
 		};
@@ -160,20 +174,19 @@ class XAnomaly extends HTMLElement {
 		this._plot = new uPlot(opts, uplotData, plotEl);
 	}
 
-	async onCheckAnomalies() {
-		if (!this.anomaly) return;
+	async onCheckOutliers() {
+		if (!this.detector) return;
 
 		try {
-			const res = await fetch(`/api/anomalies/update?id=${encodeURIComponent(this.anomaly.Id)}`, {
+			const res = await fetch(`/outliers/update?id=${encodeURIComponent(this.detector.Id)}`, {
             	method: 'POST'
 			});
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const result = await res.json();
-			console.log('Anomalies checked:', result);
-
+			console.log('Outliers checked:', result);
 			await this.update();
 		} catch (err) {
-			console.error('Error checking anomalies:', err);
+			console.error('Error checking outliers:', err);
 		}
 	}
 
@@ -195,7 +208,7 @@ function escapeHTML(str) {
 	return div.innerHTML;
 }
 
-customElements.define('x-anomalies', XAnomaly);
+customElements.define('x-detector', XDetector);
 customElements.define('x-anomalieslist', XAnomaliesList);
 
 </script>
