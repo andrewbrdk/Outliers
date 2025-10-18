@@ -1,5 +1,5 @@
 [[detectors]]
-title = "wiki_pageviews"
+title = "Wiki Pageviews"
 #connection = "postgres://pguser:password123@postgres:5432/outliers"
 connection = "postgres://pguser:password123@localhost:5432/outliers"
 source = "wiki_pageviews"

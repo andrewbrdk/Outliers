@@ -3,7 +3,7 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Anomalies</title>
+	<title>Outliers</title>
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css">
 	<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
 	<style>
@@ -12,36 +12,74 @@
 			margin-right: 10%;
 			font-family: sans-serif;
 		}
-		x-anomalieslist, #allanomalies {
-			display: block;
-			margin: 0 auto;
-		}
 		h1 {
 			text-align: center;
 		}
 		h1 a {
 			color: black;
 			text-decoration: none;
-		}	
+		}
+		x-outliers {
+			display: block;
+			margin: 0 auto;
+			#detectors {
+				margin-bottom: 50px;
+			}
+		}
+		x-detector {
+			.detector-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				margin-bottom: 0.5em;
+			}
+			.detector-header h3 {
+				margin: 0;
+			}
+			.uplot {
+				margin: 0 auto;
+				display: block;
+			}
+			.detector-info {
+				display: grid;
+				grid-template-columns: max-content 1fr;
+				row-gap: 0.25rem;
+				column-gap: 0.5rem;
+				margin-top: 0.5rem;
+				align-items: center;
+				p {
+					margin: 0;
+					display: contents;
+				}
+				p span.label {
+					font-weight: bold;
+					text-align: left;
+					padding-right: 0.5rem;
+				}
+				p span.value {
+					text-align: left;
+				}
+			}
+		}
 	</style>
 </head>
 <body>
 	
-<x-anomalieslist></x-anomalieslist>
+<x-outliers></x-outliers>
 
 <script>
-class XAnomaliesList extends HTMLElement {
-	#alldetectors = null;
+class XOutliers extends HTMLElement {
+	#detectors = null;
 	#detectorsData = null;
 	
 	constructor() {
 		super();
 		this.innerHTML = `
 	 		<h1><a href="/">Outliers</a></h1>
-			<div id="alldetectors"></div>
+			<div id="detectors"></div>
 			<button>Add Outliers Detector</button>
 		`;
-		this.#alldetectors = this.querySelector('#alldetectors');
+		this.#detectors = this.querySelector('#detectors');
 		this.renderPage();
 	}
 
@@ -49,7 +87,7 @@ class XAnomaliesList extends HTMLElement {
 		let res = await fetch('/outliers');
 		const statusCode = res.status;
 		if (statusCode == 200) {
-			this.#alldetectors.hidden = false;
+			this.#detectors.hidden = false;
 			let d = await res.json();
 			this.renderDetectors(d);
 		}
@@ -66,7 +104,7 @@ class XAnomaliesList extends HTMLElement {
 			await f.init(fc);			
 			xdetectors.push(f);
 		}
-		this.#alldetectors.replaceChildren(...xdetectors);
+		this.#detectors.replaceChildren(...xdetectors);
 	}
 }
 
@@ -104,14 +142,18 @@ class XDetector extends HTMLElement {
 	
 	async HTML() {
 		let html = `
-		<h3>${escapeHTML(this.detector.Title)}</h3>
+		<div class="detector-header">
+			<h3>${escapeHTML(this.detector.Title)}</h3>
+			<button class="check-outliers-btn">Check Outliers</button>
+		</div>
 		<div class="uplot"></div>
-		<p>ConnectionString: ${escapeHTML(this.detector.ConnectionString)}</p>
-		<p>DataTable: ${escapeHTML(this.detector.DataTable)}</p>
-		<p>OutputTable: ${escapeHTML(this.detector.OutputTable)}</p>
-		<p>Backsteps: ${this.detector.Backsteps}</p>
-		<p>DetectionMethod: ${escapeHTML(this.detector.DetectionMethod)}</p>
-		<button class="check-outliers-btn">Check Outliers</button>`;
+		<div class="detector-info">
+			<p><span class="label">ConnectionString:</span><span class="value">${escapeHTML(this.detector.ConnectionString)}</span></p>
+			<p><span class="label">DataTable:</span><span class="value">${escapeHTML(this.detector.DataTable)}</span></p>
+			<p><span class="label">OutputTable:</span><span class="value">${escapeHTML(this.detector.OutputTable)}</span></p>
+			<p><span class="label">Backsteps:</span><span class="value">${this.detector.Backsteps}</span></p>
+			<p><span class="label">DetectionMethod:</span><span class="value">${escapeHTML(this.detector.DetectionMethod)}</span></p>
+		</div>`;
 		return html;
 	}
 
@@ -120,38 +162,31 @@ class XDetector extends HTMLElement {
 		const res = await fetch(`/outliers/plot?id=${id}`);
 		if (!res.ok) return;
 		const data = await res.json();
-		if (!data || !data.original || !data.outliers) return;
+		if (!data || !data.outliers) return;
 
-		const labels = [...new Set([
-			...data.original.map(p => p.T),
-			...data.outliers.map(p => p.T)
-		])].sort((a, b) => Number(a) - Number(b));
-
-		const origMap = new Map(data.original.map(p => [p.T, p.Value]));
-		const outliersMap = new Map(data.outliers.map(p => [p.T, p.Value]));
-
-		const origValues = labels.map(T => origMap.get(T) ?? null);
-		const outliersValues = labels.map(T => outliersMap.get(T) ?? null);
+		const x = data.outliers.map(p => p.T);
+		const y = data.outliers.map(p => p.Value);
+		const outliers = data.outliers.map(p => p.IsOutlier ? p.Value : null);
 
 		const uplotData = [
-			labels,
-			origValues,
-			outliersValues,
+			x,
+			y,
+			outliers
 		];
 
 		const opts = {
-			title: `Outliers ID ${id}`,
 			width: 1000,
-			height: 400,
+			height: 300,
+			//padding: [null, null, null, 50], // top, right, bottom, left 
 			scales: {
 				x: { time: false },
 				y: { auto: true },
 			},
 			series: [
-				{}, // x values
+				{},
 				{ 
 					label: "Original", 
-					stroke: "blue", 
+					stroke: "black", 
 					width: 2, 
 					points: { show: false } 
 				},
@@ -166,7 +201,7 @@ class XDetector extends HTMLElement {
 				drag: { x: true, y: false },
 				lock: true,
 			},
-			legend: { show: true },
+			legend: { show: false },
 		};
 
 		//this.querySelectorAll(".uplot").forEach(el => el.remove());
@@ -209,7 +244,7 @@ function escapeHTML(str) {
 }
 
 customElements.define('x-detector', XDetector);
-customElements.define('x-anomalieslist', XAnomaliesList);
+customElements.define('x-outliers', XOutliers);
 
 </script>
 </body>

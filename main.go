@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -46,6 +47,7 @@ type Detector struct {
 	DetectionMethod  string        `toml:"detection_method"`
 	points           []Point       `toml:"-"`
 	markedPoints     []MarkedPoint `toml:"-"`
+	LastUpdate       time.Time     `toml:"-"`
 }
 
 type Point struct {
@@ -358,20 +360,6 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	selectOrigQuery := fmt.Sprintf(`
-		select 
-			dt - MIN(dt) OVER () AS ts, 
-			views as value 
-		from %s
-		order by ts asc
-	`, d.DataTable)
-	originalRows, err := db.Query(selectOrigQuery)
-	if err != nil {
-		errorLog.Println(err)
-		http.Error(w, "query failed", http.StatusInternalServerError)
-		return
-	}
-	defer originalRows.Close()
 	selectOutliersQuery := fmt.Sprintf(`
 		select 
 			step as ts,
@@ -388,16 +376,6 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer outliersRows.Close()
 
-	var p Point
-	var original []Point
-	for originalRows.Next() {
-		if err := originalRows.Scan(&p.T, &p.Value); err != nil {
-			errorLog.Println(err)
-			http.Error(w, "scan failed", http.StatusInternalServerError)
-			return
-		}
-		original = append(original, p)
-	}
 	var mp MarkedPoint
 	var outliers []MarkedPoint
 	for outliersRows.Next() {
@@ -406,16 +384,13 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "scan failed", http.StatusInternalServerError)
 			return
 		}
-		if mp.IsOutlier {
-			outliers = append(outliers, mp)
-		}
+		outliers = append(outliers, mp)
 	}
 
 	type PlotResponse struct {
-		Original []Point       `json:"original"`
 		Outliers []MarkedPoint `json:"outliers"`
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(PlotResponse{Original: original, Outliers: outliers})
+	json.NewEncoder(w).Encode(PlotResponse{Outliers: outliers})
 }
