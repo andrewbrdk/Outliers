@@ -6,3 +6,13 @@ source = "wiki_pageviews"
 output = "wiki_pageviews_outliers"
 backsteps = 30
 detection_method = 'mean10prc'
+
+
+[[detectors]]
+title = "Wiki Pageviews All Lang"
+#connection = "postgres://pguser:password123@postgres:5432/outliers"
+connection = "postgres://pguser:password123@localhost:5432/outliers"
+source = "wiki_pageviews"
+output = "wiki_pageviews_outliers"
+backsteps = 30
+detection_method = 'mean10prc'

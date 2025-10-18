@@ -27,6 +27,9 @@
 			}
 		}
 		x-detector {
+			display: block;
+			margin-bottom: 100px;
+
 			.detector-header {
 				display: flex;
 				justify-content: space-between;
@@ -228,7 +231,7 @@ class XDetector extends HTMLElement {
 		};
 
 		//this.querySelectorAll(".uplot").forEach(el => el.remove());
-		const plotEl = document.querySelector("div.uplot");
+		const plotEl = this.querySelector(".uplot");
 		this._plot = new uPlot(opts, uplotData, plotEl);
 	}
 
