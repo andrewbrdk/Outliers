@@ -144,7 +144,10 @@ class XDetector extends HTMLElement {
 		let html = `
 		<div class="detector-header">
 			<h3>${escapeHTML(this.detector.Title)}</h3>
-			<button class="check-outliers-btn">Check Outliers</button>
+			<div>
+				Last Update: ${this.detector.LastUpdate ? this.formatDateTime(new Date(this.detector.LastUpdate)) : 'N/A'}
+				<button class="check-outliers-btn">Check Outliers</button>
+			</div>
 		</div>
 		<div class="uplot"></div>
 		<div class="detector-info">
@@ -218,6 +221,7 @@ class XDetector extends HTMLElement {
 			});
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const result = await res.json();
+			this.detector = result.detector;
 			console.log('Outliers checked:', result);
 			await this.update();
 		} catch (err) {

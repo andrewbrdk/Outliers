@@ -221,6 +221,7 @@ func (d *Detector) markOutliers() error {
 			outlierCount++
 		}
 	}
+	d.LastUpdate = time.Now()
 	infoLog.Printf(
 		"Outlier detection complete: %d outliers detected in last %d points (method=%s)",
 		outlierCount, d.Backsteps, d.DetectionMethod,
@@ -244,7 +245,7 @@ func (d *Detector) writeResults() error {
 			value numeric,
 			is_outlier boolean,
 			detection_method text,
-			detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			last_update timestamp,
 			UNIQUE(step, detection_method)
 		)`, destTable)
 	if _, err := db.ExecContext(ctx, createTableQuery); err != nil {
@@ -254,16 +255,16 @@ func (d *Detector) writeResults() error {
 
 	for _, mp := range d.markedPoints {
 		upsertQuery := fmt.Sprintf(`
-			INSERT INTO %s (dt, step, value, is_outlier, detection_method, detected_at) 
-			VALUES (NULL, $1, $2, $3, $4, CURRENT_TIMESTAMP)
+			INSERT INTO %s (dt, step, value, is_outlier, detection_method, last_update) 
+			VALUES (NULL, $1, $2, $3, $4, $5)
 			ON CONFLICT (step, detection_method)
 			DO UPDATE SET
 				value = EXCLUDED.value,
 				is_outlier = EXCLUDED.is_outlier,
-				detected_at = EXCLUDED.detected_at
+				last_update = EXCLUDED.last_update
 		`, destTable)
 
-		if _, err := db.ExecContext(ctx, upsertQuery, mp.T, mp.Value, mp.IsOutlier, d.DetectionMethod); err != nil {
+		if _, err := db.ExecContext(ctx, upsertQuery, mp.T, mp.Value, mp.IsOutlier, d.DetectionMethod, d.LastUpdate); err != nil {
 			errorLog.Printf("Error inserting outlier for %d: %v", mp.T, err)
 			return err
 		}
@@ -331,7 +332,14 @@ func outliersUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Response{Status: "error", Message: err.Error()})
 		return
 	}
-	json.NewEncoder(w).Encode(Response{Status: "ok"})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Status   string    `json:"status"`
+		Detector *Detector `json:"detector"`
+	}{
+		Status:   "ok",
+		Detector: d,
+	})
 }
 
 func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
