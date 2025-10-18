@@ -145,7 +145,7 @@ class XDetector extends HTMLElement {
 		<div class="detector-header">
 			<h3>${escapeHTML(this.detector.Title)}</h3>
 			<div>
-				Last Update: ${this.detector.LastUpdate ? this.formatDateTime(new Date(this.detector.LastUpdate)) : 'N/A'}
+				Updated: ${this.detector.LastUpdate ? this.formatDateTime(new Date(this.detector.LastUpdate)) : 'N/A'}
 				<button class="check-outliers-btn">Check Outliers</button>
 			</div>
 		</div>
@@ -170,11 +170,15 @@ class XDetector extends HTMLElement {
 		const x = data.outliers.map(p => p.T);
 		const y = data.outliers.map(p => p.Value);
 		const outliers = data.outliers.map(p => p.IsOutlier ? p.Value : null);
+		const lower = data.outliers.map(p => p.LowerBound);
+		const upper = data.outliers.map(p => p.UpperBound);
 
 		const uplotData = [
 			x,
 			y,
-			outliers
+			outliers,
+			lower,
+			upper
 		];
 
 		const opts = {
@@ -190,8 +194,8 @@ class XDetector extends HTMLElement {
 				{ 
 					label: "Original", 
 					stroke: "black", 
-					width: 2, 
-					points: { show: false } 
+					width: 2,
+					points: {show: false} 
 				},
 				{ 
 					label: "Outliers", 
@@ -199,12 +203,28 @@ class XDetector extends HTMLElement {
 					fill: "transparent",
 					points: {show: true, size: 6, stroke: "red", fill: "red",},
 				},
+				{ 
+					label: "Lower Bound", 
+					stroke: "black", 
+					dash: [20, 5],
+					width: 2,
+					points: {show: false},
+      				band: true,
+				},
+				{ 
+					label: "Upper Bound", 
+					stroke: "black", 
+					dash: [20, 5],
+					width: 2,
+					points: {show: false},
+      				band: true,
+				},
 			],
 			cursor: {
-				drag: { x: true, y: false },
+				drag: {x: true, y: false},
 				lock: true,
 			},
-			legend: { show: false },
+			legend: {show: false},
 		};
 
 		//this.querySelectorAll(".uplot").forEach(el => el.remove());
@@ -222,7 +242,6 @@ class XDetector extends HTMLElement {
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const result = await res.json();
 			this.detector = result.detector;
-			console.log('Outliers checked:', result);
 			await this.update();
 		} catch (err) {
 			console.error('Error checking outliers:', err);

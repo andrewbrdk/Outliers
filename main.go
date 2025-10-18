@@ -56,9 +56,11 @@ type Point struct {
 }
 
 type MarkedPoint struct {
-	T         int64
-	Value     float64
-	IsOutlier bool
+	T          int64
+	Value      float64
+	IsOutlier  bool
+	LowerBound float64
+	UpperBound float64
 }
 
 func main() {
@@ -216,6 +218,8 @@ func (d *Detector) markOutliers() error {
 		d.markedPoints[i].T = d.points[pi].T
 		d.markedPoints[i].Value = val
 		d.markedPoints[i].IsOutlier = false
+		d.markedPoints[i].LowerBound = lower
+		d.markedPoints[i].UpperBound = upper
 		if val < lower || val > upper {
 			d.markedPoints[i].IsOutlier = true
 			outlierCount++
@@ -244,6 +248,8 @@ func (d *Detector) writeResults() error {
 			step int,
 			value numeric,
 			is_outlier boolean,
+			lower_bound numeric,
+			upper_bound numeric,
 			detection_method text,
 			last_update timestamp,
 			UNIQUE(step, detection_method)
@@ -255,16 +261,18 @@ func (d *Detector) writeResults() error {
 
 	for _, mp := range d.markedPoints {
 		upsertQuery := fmt.Sprintf(`
-			INSERT INTO %s (dt, step, value, is_outlier, detection_method, last_update) 
-			VALUES (NULL, $1, $2, $3, $4, $5)
+			INSERT INTO %s (dt, step, value, is_outlier, lower_bound, upper_bound, detection_method, last_update) 
+			VALUES (NULL, $1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (step, detection_method)
 			DO UPDATE SET
 				value = EXCLUDED.value,
 				is_outlier = EXCLUDED.is_outlier,
+				lower_bound = EXCLUDED.lower_bound,
+				upper_bound = EXCLUDED.upper_bound,
 				last_update = EXCLUDED.last_update
 		`, destTable)
 
-		if _, err := db.ExecContext(ctx, upsertQuery, mp.T, mp.Value, mp.IsOutlier, d.DetectionMethod, d.LastUpdate); err != nil {
+		if _, err := db.ExecContext(ctx, upsertQuery, mp.T, mp.Value, mp.IsOutlier, mp.LowerBound, mp.UpperBound, d.DetectionMethod, d.LastUpdate); err != nil {
 			errorLog.Printf("Error inserting outlier for %d: %v", mp.T, err)
 			return err
 		}
@@ -372,7 +380,9 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 		select 
 			step as ts,
 			value,
-			is_outlier
+			is_outlier,
+			lower_bound,
+			upper_bound
 		from %s
 		order by ts asc
 	`, d.OutputTable)
@@ -387,7 +397,7 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 	var mp MarkedPoint
 	var outliers []MarkedPoint
 	for outliersRows.Next() {
-		if err := outliersRows.Scan(&mp.T, &mp.Value, &mp.IsOutlier); err != nil {
+		if err := outliersRows.Scan(&mp.T, &mp.Value, &mp.IsOutlier, &mp.LowerBound, &mp.UpperBound); err != nil {
 			errorLog.Println(err)
 			http.Error(w, "scan failed", http.StatusInternalServerError)
 			return
