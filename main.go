@@ -55,6 +55,7 @@ type Detector struct {
 
 type Point struct {
 	T     time.Time
+	TUnix int64
 	Value float64
 }
 
@@ -203,14 +204,14 @@ func (d *Detector) readTimeSeries() error {
 		if err := rows.Scan(&p.T, &p.Value); err != nil {
 			errorLog.Printf("Scan error: %v", err)
 		}
-		d.points = append(d.points, Point{T: p.T, Value: p.Value})
+		d.points = append(d.points, Point{T: p.T, TUnix: p.T.Unix(), Value: p.Value})
 	}
 	if err := rows.Err(); err != nil {
 		errorLog.Printf("Rows error: %v", err)
 	}
 
 	sort.Slice(d.points, func(i, j int) bool {
-		return d.points[i].T.Before(d.points[j].T)
+		return d.points[i].TUnix < d.points[j].TUnix
 	})
 	return nil
 }
@@ -290,6 +291,7 @@ func (d *Detector) markOutliers() error {
 		upper := mean * 1.1
 		val := d.points[pi].Value
 		d.markedPoints[i].T = d.points[pi].T
+		d.markedPoints[i].TUnix = d.points[pi].TUnix
 		d.markedPoints[i].Value = val
 		d.markedPoints[i].IsOutlier = false
 		d.markedPoints[i].LowerBound = lower
