@@ -9,10 +9,10 @@ detection_method = 'mean10prc'
 
 
 [[detectors]]
-title = "Wiki Pageviews All Lang"
+title = "Wiki Pageviews Projects"
 #connection = "postgres://pguser:password123@postgres:5432/outliers"
 connection = "postgres://pguser:password123@localhost:5432/outliers"
-data_sql = "wiki_pageviews"
+data_sql = "select dt::timestamp as t, project as dim, views as value from wiki_pageviews"
 output = "wiki_pageviews_outliers"
 backsteps = 30
 detection_method = 'mean10prc'

@@ -41,27 +41,31 @@ type Config struct {
 }
 
 type Detector struct {
-	Title            string        `toml:"title"`
-	Id               int           `toml:"-"`
-	ConnectionString string        `toml:"connection"`
-	DataSQL          string        `toml:"data_sql"`
-	OutputTable      string        `toml:"output"`
-	Backsteps        int           `toml:"backsteps"`
-	DetectionMethod  string        `toml:"detection_method"`
-	points           []Point       `toml:"-"`
-	markedPoints     []MarkedPoint `toml:"-"`
-	LastUpdate       time.Time     `toml:"-"`
+	Title            string                   `toml:"title"`
+	Id               int                      `toml:"-"`
+	ConnectionString string                   `toml:"connection"`
+	DataSQL          string                   `toml:"data_sql"`
+	OutputTable      string                   `toml:"output"`
+	Backsteps        int                      `toml:"backsteps"`
+	DetectionMethod  string                   `toml:"detection_method"`
+	points           map[string][]Point       `toml:"-"`
+	markedPoints     map[string][]MarkedPoint `toml:"-"`
+	LastUpdate       time.Time                `toml:"-"`
+	hasDims          bool                     `toml:"-"`
 }
 
 type Point struct {
 	T     time.Time
 	TUnix int64
+	Dim   string
 	Value float64
+	//todo: Dim int?
 }
 
 type MarkedPoint struct {
 	T          time.Time `json:"-"`
 	TUnix      int64     `json:"T"`
+	Dim        string    `json:"Dim"`
 	Value      float64   `json:"Value"`
 	IsOutlier  bool      `json:"IsOutlier"`
 	LowerBound float64   `json:"LowerBound"`
@@ -73,11 +77,11 @@ func main() {
 	infoLog = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 	errorLog = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 	OTL.loadDetectors(CONF.confFile)
-	// todo: run forecasts on schedule
+	// todo: run detection on schedule
 	for _, d := range OTL.Detectors {
 		err := d.detectOutliers()
 		if err != nil {
-			errorLog.Printf("Error doing forecast '%s': %v", d.Title, err)
+			errorLog.Printf("Error detecting outliers '%s': %v", d.Title, err)
 		}
 	}
 	httpServer()
@@ -109,7 +113,7 @@ func (ot *Outliers) loadDetectors(filename string) error {
 	for i, d := range ot.Parsed {
 		err := d.validateConf()
 		if err != nil {
-			errorLog.Printf("Skipping invalid config at index %d", i)
+			errorLog.Printf("Skipping invalid detector config at index %d", i)
 			continue
 		}
 		ot.Detectors[ot.counter] = d
@@ -125,7 +129,12 @@ func (d *Detector) validateConf() error {
 		errorLog.Printf("Config missing title")
 		return errors.New("Invalid Config: missing title")
 	}
-	//todo: check unique title
+	for _, other := range OTL.Detectors {
+		if other != d && other.Title == d.Title {
+			errorLog.Printf("Duplicate title found: %s", d.Title)
+			return fmt.Errorf("Invalid Config: duplicate title '%s'", d.Title)
+		}
+	}
 	if d.ConnectionString == "" {
 		errorLog.Printf("Config '%s' missing connection string", d.Title)
 		return errors.New("Invalid Config: missing connection string")
@@ -193,30 +202,44 @@ func (d *Detector) readTimeSeries() error {
 	}
 	defer rows.Close()
 
-	err = validateColumns(rows)
+	err = d.validateColumns(rows)
 	if err != nil {
 		errorLog.Printf("Column validation error: %v", err)
 		return err
 	}
 
+	d.points = make(map[string][]Point)
 	var p Point
 	for rows.Next() {
-		if err := rows.Scan(&p.T, &p.Value); err != nil {
-			errorLog.Printf("Scan error: %v", err)
+		if !d.hasDims {
+			if err := rows.Scan(&p.T, &p.Value); err != nil {
+				errorLog.Printf("Scan error: %v", err)
+				continue
+			}
+			key := ""
+			d.points[key] = append(d.points[key], Point{T: p.T, TUnix: p.T.Unix(), Dim: "", Value: p.Value})
+		} else {
+			if err := rows.Scan(&p.T, &p.Dim, &p.Value); err != nil {
+				errorLog.Printf("Scan error: %v", err)
+				continue
+			}
+			key := p.Dim
+			d.points[key] = append(d.points[key], Point{T: p.T, TUnix: p.T.Unix(), Dim: p.Dim, Value: p.Value})
 		}
-		d.points = append(d.points, Point{T: p.T, TUnix: p.T.Unix(), Value: p.Value})
 	}
 	if err := rows.Err(); err != nil {
 		errorLog.Printf("Rows error: %v", err)
 	}
 
-	sort.Slice(d.points, func(i, j int) bool {
-		return d.points[i].TUnix < d.points[j].TUnix
-	})
+	for _, p := range d.points {
+		sort.Slice(p, func(i, j int) bool {
+			return p[i].TUnix < p[j].TUnix
+		})
+	}
 	return nil
 }
 
-func validateColumns(rows *sql.Rows) error {
+func (d *Detector) validateColumns(rows *sql.Rows) error {
 	cols, err := rows.Columns()
 	if err != nil {
 		errorLog.Printf("Cannot get columns: %v", err)
@@ -227,17 +250,17 @@ func validateColumns(rows *sql.Rows) error {
 		errorLog.Printf("Cannot get column types: %v", err)
 		return errors.New("Cannot get column types")
 	}
-	if len(cols) != 2 {
-		errorLog.Printf("Expected 2 columns (t, value), got %d", len(cols))
+	if len(cols) != 2 && len(cols) != 3 {
+		errorLog.Printf("Expected 2 or 3 columns, got %d", len(cols))
 		return errors.New("Invalid number of columns")
 	}
-	if cols[0] != "t" {
-		errorLog.Printf("First column must be named 't', got '%s'", cols[0])
-		return errors.New("First column must be named 't'")
+	if len(cols) == 2 && (cols[0] != "t" || cols[1] != "value") {
+		errorLog.Printf("Expecting columns ['t', 'value'], got ['%s', '%s']", cols[0], cols[1])
+		return errors.New("Unexpected column names")
 	}
-	if cols[1] != "value" {
-		errorLog.Printf("Second column must be named 'value', got '%s'", cols[1])
-		return errors.New("Second column must be named 'value'")
+	if len(cols) == 3 && (cols[0] != "t" || cols[1] != "dim" || cols[2] != "value") {
+		errorLog.Printf("Expecting columns ['t', 'dim', 'value'], got ['%s', '%s', '%s']", cols[0], cols[1], cols[2])
+		return errors.New("Unexpected column names")
 	}
 
 	tsType := colTypes[0].DatabaseTypeName()
@@ -247,7 +270,20 @@ func validateColumns(rows *sql.Rows) error {
 		return errors.New("Column 't' must be of type timestamp/timestamptz")
 	}
 
-	valType := strings.ToUpper(colTypes[1].DatabaseTypeName())
+	if len(cols) == 3 {
+		dimType := strings.ToUpper(colTypes[1].DatabaseTypeName())
+		if dimType != "TEXT" && dimType != "VARCHAR" {
+			errorLog.Printf("Column 'dim' must be of type text/varchar, got '%s'", dimType)
+			return errors.New("Column 'dim' must be of type text/varchar")
+		}
+	}
+
+	var valType string
+	if len(cols) == 2 {
+		valType = strings.ToUpper(colTypes[1].DatabaseTypeName())
+	} else {
+		valType = strings.ToUpper(colTypes[2].DatabaseTypeName())
+	}
 	allowedValType := map[string]bool{
 		"NUMERIC": true,
 		"DECIMAL": true,
@@ -264,6 +300,13 @@ func validateColumns(rows *sql.Rows) error {
 		errorLog.Printf("Column 'value' must be numeric or int, got '%s'", valType)
 		return errors.New("Column 'value' must be numeric or int")
 	}
+
+	if len(cols) == 3 {
+		d.hasDims = true
+	} else {
+		d.hasDims = false
+	}
+
 	return nil
 }
 
@@ -278,33 +321,52 @@ func (d *Detector) markOutliers() error {
 		return errors.New("Unsupported detection method: " + d.DetectionMethod)
 	}
 
-	d.markedPoints = make([]MarkedPoint, d.Backsteps)
-	outlierCount := 0
-	for i := 0; i < d.Backsteps; i++ {
-		sum := 0.0
-		pi := len(d.points) - d.Backsteps + i
-		for j := 0; j < pi; j++ {
-			sum += d.points[j].Value
+	d.markedPoints = make(map[string][]MarkedPoint)
+	totalOutliers := 0
+
+	for dim, pts := range d.points {
+
+		var dimMarked []MarkedPoint
+		outlierCount := 0
+
+		for i := 0; i < d.Backsteps; i++ {
+			pi := len(pts) - d.Backsteps + i
+			sum := 0.0
+			for j := 0; j < pi; j++ {
+				sum += pts[j].Value
+			}
+
+			mean := sum / float64(pi)
+			lower := mean * 0.9
+			upper := mean * 1.1
+			val := pts[pi].Value
+
+			mp := MarkedPoint{
+				T:          pts[pi].T,
+				TUnix:      pts[pi].TUnix,
+				Dim:        dim,
+				Value:      val,
+				LowerBound: lower,
+				UpperBound: upper,
+				IsOutlier:  val < lower || val > upper,
+			}
+
+			if mp.IsOutlier {
+				outlierCount++
+			}
+
+			dimMarked = append(dimMarked, mp)
 		}
-		mean := sum / float64(pi)
-		lower := mean * 0.9
-		upper := mean * 1.1
-		val := d.points[pi].Value
-		d.markedPoints[i].T = d.points[pi].T
-		d.markedPoints[i].TUnix = d.points[pi].TUnix
-		d.markedPoints[i].Value = val
-		d.markedPoints[i].IsOutlier = false
-		d.markedPoints[i].LowerBound = lower
-		d.markedPoints[i].UpperBound = upper
-		if val < lower || val > upper {
-			d.markedPoints[i].IsOutlier = true
-			outlierCount++
-		}
+
+		d.markedPoints[dim] = dimMarked
+		totalOutliers += outlierCount
+
+		infoLog.Printf("Dim=%s: detected %d outliers in last %d points", dim, outlierCount, d.Backsteps)
 	}
 	d.LastUpdate = time.Now()
 	infoLog.Printf(
-		"Outlier detection complete: %d outliers detected in last %d points (method=%s)",
-		outlierCount, d.Backsteps, d.DetectionMethod,
+		"Outlier detection complete for %s: total %d outliers detected (method=%s)",
+		d.Title, totalOutliers, d.DetectionMethod,
 	)
 	return nil
 }
@@ -321,6 +383,7 @@ func (d *Detector) writeResults() error {
 	createTableQuery := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			t timestamp,
+			dim text,
 			value numeric,
 			is_outlier boolean,
 			lower_bound numeric,
@@ -328,33 +391,52 @@ func (d *Detector) writeResults() error {
 			method text,
 			last_update timestamp,
 			detector text,
-			PRIMARY KEY (t, detector)
-		)`, destTable)
-	// todo: add indexes
+			PRIMARY KEY (t, detector, dim)
+		);
+		CREATE INDEX IF NOT EXISTS idx_%[1]s_t ON %[1]s (t);
+		CREATE INDEX IF NOT EXISTS idx_%[1]s_detector ON %[1]s (detector);
+		CREATE INDEX IF NOT EXISTS idx_%[1]s_dim ON %[1]s (dim);`, destTable)
 	if _, err := db.ExecContext(ctx, createTableQuery); err != nil {
 		errorLog.Printf("Error creating table %s: %v", destTable, err)
 		return err
 	}
 
-	for _, mp := range d.markedPoints {
-		upsertQuery := fmt.Sprintf(`
-			INSERT INTO %s (t, value, is_outlier, lower_bound, upper_bound, method, last_update, detector) 
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (t, detector)
-			DO UPDATE SET
-				value = EXCLUDED.value,
-				is_outlier = EXCLUDED.is_outlier,
-				lower_bound = EXCLUDED.lower_bound,
-				upper_bound = EXCLUDED.upper_bound,
-				last_update = EXCLUDED.last_update
-		`, destTable)
+	upsertQuery := fmt.Sprintf(`
+		INSERT INTO %s (
+			t, dim, value, is_outlier, lower_bound, upper_bound, method, last_update, detector
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (t, detector, dim)
+		DO UPDATE SET
+			value = EXCLUDED.value,
+			is_outlier = EXCLUDED.is_outlier,
+			lower_bound = EXCLUDED.lower_bound,
+			upper_bound = EXCLUDED.upper_bound,
+			method = EXCLUDED.method,
+			last_update = EXCLUDED.last_update;`, destTable)
 
-		if _, err := db.ExecContext(ctx, upsertQuery, mp.T, mp.Value, mp.IsOutlier, mp.LowerBound, mp.UpperBound, d.DetectionMethod, d.LastUpdate, d.Title); err != nil {
-			errorLog.Printf("Error inserting outlier: %v", err)
-			return err
+	stmt, err := db.PrepareContext(ctx, upsertQuery)
+	if err != nil {
+		errorLog.Printf("Error preparing upsert statement: %v", err)
+		return err
+	}
+	defer stmt.Close()
+
+	for dim, mps := range d.markedPoints {
+		for _, mp := range mps {
+			_, err := stmt.ExecContext(
+				ctx,
+				mp.T, dim, mp.Value,
+				mp.IsOutlier, mp.LowerBound, mp.UpperBound,
+				d.DetectionMethod, d.LastUpdate, d.Title)
+			if err != nil {
+				errorLog.Printf("Error inserting dim=%s t=%v: %v", dim, mp.T, err)
+				return err
+			}
 		}
 	}
 
+	infoLog.Printf("Results written to table %s for %s (%d dims)", destTable, d.Title, len(d.markedPoints))
 	return nil
 }
 
