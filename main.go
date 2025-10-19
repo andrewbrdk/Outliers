@@ -124,6 +124,7 @@ func (d *Detector) validateConf() error {
 		errorLog.Printf("Config missing title")
 		return errors.New("Invalid Config: missing title")
 	}
+	//todo: check unique title
 	if d.ConnectionString == "" {
 		errorLog.Printf("Config '%s' missing connection string", d.Title)
 		return errors.New("Invalid Config: missing connection string")
@@ -151,10 +152,12 @@ func (d *Detector) validateConf() error {
 func (d *Detector) detectOutliers() error {
 	infoLog.Printf("Detecting %s", d.Title)
 	err := d.readTimeSeries()
+	defer func() { d.points = nil }()
 	if err != nil {
 		return err
 	}
 	err = d.markOutliers()
+	defer func() { d.markedPoints = nil }()
 	if err != nil {
 		return err
 	}
@@ -264,7 +267,7 @@ func validateColumns(rows *sql.Rows) error {
 }
 
 func (d *Detector) markOutliers() error {
-	infoLog.Printf("Detecting outliers for %s", d.Title)
+	infoLog.Printf("Marking outliers for %s", d.Title)
 	if len(d.points) == 0 {
 		errorLog.Printf("No data")
 		return errors.New("No data")
@@ -380,7 +383,7 @@ func httpOutliers(w http.ResponseWriter, r *http.Request) {
 	fData, err := json.Marshal(OTL)
 	if err != nil {
 		errorLog.Println(err)
-		http.Error(w, "No Forecasts Found", http.StatusNotFound)
+		http.Error(w, "Internal error reading data", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -407,7 +410,7 @@ func outliersUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.detectOutliers(); err != nil {
-		log.Println("Forecast update error:", err)
+		errorLog.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(Response{Status: "error", Message: err.Error()})
 		return
