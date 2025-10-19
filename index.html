@@ -39,7 +39,7 @@
 			.detector-header h3 {
 				margin: 0;
 			}
-			.uplot {
+			.plots {
 				margin: 0 auto;
 				display: block;
 			}
@@ -126,7 +126,7 @@ class XDetector extends HTMLElement {
 	async update() {
 		this.innerHTML = await this.HTML();
 		this.bindEvents();
-		this.drawChart();
+		this.drawCharts();
 	}
 
 	bindEvents() {
@@ -152,7 +152,7 @@ class XDetector extends HTMLElement {
 				<button class="check-outliers-btn">Check Outliers</button>
 			</div>
 		</div>
-		<div class="uplot"></div>
+		<div class="plots"></div>
 		<div class="detector-info">
 			<p><span class="label">ConnectionString:</span><span class="value">${escapeHTML(this.detector.ConnectionString)}</span></p>
 			<p><span class="label">DataSQL:</span><span class="value">${escapeHTML(this.detector.DataSQL)}</span></p>
@@ -163,76 +163,78 @@ class XDetector extends HTMLElement {
 		return html;
 	}
 
-	async drawChart() {
+	async drawCharts() {
 		const id = this.detector.Id;
 		const res = await fetch(`/outliers/plot?id=${id}`);
 		if (!res.ok) return;
 		const data = await res.json();
 		if (!data || !data.outliers) return;
 
-		const x = data.outliers.map(p => p.T);
-		const y = data.outliers.map(p => p.Value);
-		const outliers = data.outliers.map(p => p.IsOutlier ? p.Value : null);
-		const lower = data.outliers.map(p => p.LowerBound);
-		const upper = data.outliers.map(p => p.UpperBound);
+		const container = this.querySelector(".plots") || this;
+		container.innerHTML = "";
 
-		const uplotData = [
-			x,
-			y,
-			outliers,
-			lower,
-			upper
-		];
+		for (const [dim, points] of Object.entries(data.outliers)) {
+			if (!points.length) continue;
+			const x = points.map(p => p.T);
+			const y = points.map(p => p.Value);
+			const outliers = points.map(p => p.IsOutlier ? p.Value : null);
+			const lower = points.map(p => p.LowerBound);
+			const upper = points.map(p => p.UpperBound);
 
-		const opts = {
-			width: 1000,
-			height: 300,
-			//padding: [null, null, null, 50], // top, right, bottom, left 
-			scales: {
-				x: { time: true },
-				y: { auto: true },
-			},
-			series: [
-				{},
-				{ 
-					label: "Original", 
-					stroke: "black", 
-					width: 2,
-					points: {show: false} 
-				},
-				{ 
-					label: "Outliers", 
-					stroke: "transparent",   // no line
-					fill: "transparent",
-					points: {show: true, size: 6, stroke: "red", fill: "red",},
-				},
-				{ 
-					label: "Lower Bound", 
-					stroke: "black", 
-					dash: [20, 5],
-					width: 2,
-					points: {show: false},
-      				band: true,
-				},
-				{ 
-					label: "Upper Bound", 
-					stroke: "black", 
-					dash: [20, 5],
-					width: 2,
-					points: {show: false},
-      				band: true,
-				},
-			],
-			cursor: {
-				drag: {x: true, y: false},
-				lock: true,
-			},
-			legend: {show: false},
-		};
+			const uplotData = [x, y, outliers, lower, upper];
 
-		//this.querySelectorAll(".uplot").forEach(el => el.remove());
-		const plotEl = this.querySelector(".uplot");
-		this._plot = new uPlot(opts, uplotData, plotEl);
+			const opts = {
+				title: dim ? `Dimension: ${dim}` : "",
+				width: 1000,
+				height: 300,
+				//padding: [null, null, null, 50], // top, right, bottom, left 
+				scales: {
+					x: { time: true },
+					y: { auto: true },
+				},
+				series: [
+					{},
+					{ 
+						label: "Original", 
+						stroke: "black", 
+						width: 2,
+						points: {show: false} 
+					},
+					{ 
+						label: "Outliers", 
+						stroke: "transparent",
+						fill: "transparent",
+						points: {show: true, size: 6, stroke: "red", fill: "red",},
+					},
+					{ 
+						label: "Lower Bound", 
+						stroke: "black", 
+						dash: [20, 5],
+						width: 2,
+						points: {show: false},
+						band: true,
+					},
+					{ 
+						label: "Upper Bound", 
+						stroke: "black", 
+						dash: [20, 5],
+						width: 2,
+						points: {show: false},
+						band: true,
+					},
+				],
+				cursor: {
+					drag: {x: true, y: false},
+					lock: true,
+				},
+				legend: {show: false},
+			};
+
+			const plotWrapper = document.createElement("div");
+			plotWrapper.classList.add("plot-wrapper");
+			container.appendChild(plotWrapper);
+			new uPlot(opts, uplotData, plotWrapper);
+		}
 	}
 
 	async onCheckOutliers() {

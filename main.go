@@ -538,38 +538,48 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 	selectOutliersQuery := fmt.Sprintf(`
 		select 
 			t,
+			dim,
 			value,
 			is_outlier,
 			lower_bound,
 			upper_bound
 		from %s
 		where detector = $1
-		order by t asc
+		order by dim ASC, t ASC
 	`, d.OutputTable)
-	outliersRows, err := db.Query(selectOutliersQuery, d.Title)
+	rows, err := db.Query(selectOutliersQuery, d.Title)
 	if err != nil {
 		errorLog.Println(err)
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return
 	}
-	defer outliersRows.Close()
+	defer rows.Close()
 
 	var mp MarkedPoint
-	var outliers []MarkedPoint
-	for outliersRows.Next() {
-		if err := outliersRows.Scan(&mp.T, &mp.Value, &mp.IsOutlier, &mp.LowerBound, &mp.UpperBound); err != nil {
+	outliersByDim := make(map[string][]MarkedPoint)
+	for rows.Next() {
+		if err := rows.Scan(&mp.T, &mp.Dim, &mp.Value, &mp.IsOutlier, &mp.LowerBound, &mp.UpperBound); err != nil {
 			errorLog.Println(err)
 			http.Error(w, "scan failed", http.StatusInternalServerError)
 			return
 		}
 		mp.TUnix = mp.T.Unix()
-		outliers = append(outliers, mp)
+		outliersByDim[mp.Dim] = append(outliersByDim[mp.Dim], mp)
+	}
+	if err := rows.Err(); err != nil {
+		errorLog.Printf("Rows iteration error: %v", err)
+		http.Error(w, "rows error", http.StatusInternalServerError)
+		return
 	}
 
 	type PlotResponse struct {
-		Outliers []MarkedPoint `json:"outliers"`
+		Outliers map[string][]MarkedPoint `json:"outliers"`
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(PlotResponse{Outliers: outliers})
+	err = json.NewEncoder(w).Encode(PlotResponse{Outliers: outliersByDim})
+	if err != nil {
+		errorLog.Printf("Encoding error: %v", err)
+		http.Error(w, "encode failed", http.StatusInternalServerError)
+	}
 }
