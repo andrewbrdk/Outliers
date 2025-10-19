@@ -2,7 +2,7 @@
 title = "Wiki Pageviews"
 #connection = "postgres://pguser:password123@postgres:5432/outliers"
 connection = "postgres://pguser:password123@localhost:5432/outliers"
-source = "wiki_pageviews"
+data_sql = "select dt::timestamp as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
 backsteps = 30
 detection_method = 'mean10prc'
@@ -12,7 +12,7 @@ detection_method = 'mean10prc'
 title = "Wiki Pageviews All Lang"
 #connection = "postgres://pguser:password123@postgres:5432/outliers"
 connection = "postgres://pguser:password123@localhost:5432/outliers"
-source = "wiki_pageviews"
+data_sql = "wiki_pageviews"
 output = "wiki_pageviews_outliers"
 backsteps = 30
 detection_method = 'mean10prc'

@@ -10,7 +10,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -41,7 +44,7 @@ type Detector struct {
 	Title            string        `toml:"title"`
 	Id               int           `toml:"-"`
 	ConnectionString string        `toml:"connection"`
-	DataTable        string        `toml:"source"`
+	DataSQL          string        `toml:"data_sql"`
 	OutputTable      string        `toml:"output"`
 	Backsteps        int           `toml:"backsteps"`
 	DetectionMethod  string        `toml:"detection_method"`
@@ -51,16 +54,17 @@ type Detector struct {
 }
 
 type Point struct {
-	T     int64
+	T     time.Time
 	Value float64
 }
 
 type MarkedPoint struct {
-	T          int64
-	Value      float64
-	IsOutlier  bool
-	LowerBound float64
-	UpperBound float64
+	T          time.Time `json:"-"`
+	TUnix      int64     `json:"T"`
+	Value      float64   `json:"Value"`
+	IsOutlier  bool      `json:"IsOutlier"`
+	LowerBound float64   `json:"LowerBound"`
+	UpperBound float64   `json:"UpperBound"`
 }
 
 func main() {
@@ -124,13 +128,18 @@ func (d *Detector) validateConf() error {
 		errorLog.Printf("Config '%s' missing connection string", d.Title)
 		return errors.New("Invalid Config: missing connection string")
 	}
-	if d.DataTable == "" {
-		errorLog.Printf("Config '%s' missing source table", d.Title)
-		return errors.New("Invalid Config: missing source table")
+	if d.DataSQL == "" {
+		errorLog.Printf("Config '%s' missing data_sql", d.Title)
+		return errors.New("Invalid Config: missing data_sql")
 	}
 	if d.OutputTable == "" {
 		errorLog.Printf("Config '%s' missing output table", d.Title)
 		return errors.New("Invalid Config: missing output table")
+	}
+	var validTableName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
+	if !validTableName.MatchString(d.OutputTable) {
+		errorLog.Printf("Invalid output table name: %s", d.OutputTable)
+		return errors.New("invalid output table name: " + d.OutputTable)
 	}
 	if d.Backsteps <= 0 {
 		errorLog.Printf("Invalid backsteps: %d", d.Backsteps)
@@ -157,28 +166,35 @@ func (d *Detector) detectOutliers() error {
 }
 
 func (d *Detector) readTimeSeries() error {
-	selectQuery := fmt.Sprintf(`
-		select
-			dt - MIN(dt) OVER () AS ts, 
-			views as value
-		from %s
-		order by ts asc
-	`, d.DataTable)
-	ctx := context.Background()
 	db, err := sql.Open("pgx", d.ConnectionString)
 	if err != nil {
 		errorLog.Printf("Error connecting to Postgres: %v", err)
 		return err
 	}
 	defer db.Close()
-	rows, err := db.QueryContext(ctx, selectQuery)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3600*time.Second)
+	defer cancel()
+
+	_, err = db.ExecContext(ctx, "SET default_transaction_read_only = on;")
+	if err != nil {
+		errorLog.Printf("Failed to set read-only: %v", err)
+		return err
+	}
+
+	rows, err := db.QueryContext(ctx, d.DataSQL)
 	if err != nil {
 		errorLog.Printf("Error reading from table: %v", err)
 		return err
 	}
 	defer rows.Close()
 
-	//todo: simplify
+	err = validateColumns(rows)
+	if err != nil {
+		errorLog.Printf("Column validation error: %v", err)
+		return err
+	}
+
 	var p Point
 	for rows.Next() {
 		if err := rows.Scan(&p.T, &p.Value); err != nil {
@@ -188,6 +204,61 @@ func (d *Detector) readTimeSeries() error {
 	}
 	if err := rows.Err(); err != nil {
 		errorLog.Printf("Rows error: %v", err)
+	}
+
+	sort.Slice(d.points, func(i, j int) bool {
+		return d.points[i].T.Before(d.points[j].T)
+	})
+	return nil
+}
+
+func validateColumns(rows *sql.Rows) error {
+	cols, err := rows.Columns()
+	if err != nil {
+		errorLog.Printf("Cannot get columns: %v", err)
+		return errors.New("Cannot get columns")
+	}
+	colTypes, err := rows.ColumnTypes()
+	if err != nil {
+		errorLog.Printf("Cannot get column types: %v", err)
+		return errors.New("Cannot get column types")
+	}
+	if len(cols) != 2 {
+		errorLog.Printf("Expected 2 columns (t, value), got %d", len(cols))
+		return errors.New("Invalid number of columns")
+	}
+	if cols[0] != "t" {
+		errorLog.Printf("First column must be named 't', got '%s'", cols[0])
+		return errors.New("First column must be named 't'")
+	}
+	if cols[1] != "value" {
+		errorLog.Printf("Second column must be named 'value', got '%s'", cols[1])
+		return errors.New("Second column must be named 'value'")
+	}
+
+	tsType := colTypes[0].DatabaseTypeName()
+	validTs := tsType == "TIMESTAMP" || tsType == "TIMESTAMPTZ"
+	if !validTs {
+		errorLog.Printf("Column 't' must be of type timestamp/timestamptz, got '%s'", tsType)
+		return errors.New("Column 't' must be of type timestamp/timestamptz")
+	}
+
+	valType := strings.ToUpper(colTypes[1].DatabaseTypeName())
+	allowedValType := map[string]bool{
+		"NUMERIC": true,
+		"DECIMAL": true,
+		"INT":     true,
+		"INT2":    true,
+		"INT4":    true,
+		"INT8":    true,
+		"FLOAT4":  true,
+		"FLOAT8":  true,
+		"DOUBLE":  true,
+		"REAL":    true,
+	}
+	if !allowedValType[valType] {
+		errorLog.Printf("Column 'value' must be numeric or int, got '%s'", valType)
+		return errors.New("Column 'value' must be numeric or int")
 	}
 	return nil
 }
@@ -244,16 +315,17 @@ func (d *Detector) writeResults() error {
 
 	createTableQuery := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			dt DATE,
-			step int,
+			t timestamp,
 			value numeric,
 			is_outlier boolean,
 			lower_bound numeric,
 			upper_bound numeric,
-			detection_method text,
+			method text,
 			last_update timestamp,
-			UNIQUE(step, detection_method)
+			detector text,
+			PRIMARY KEY (t, detector)
 		)`, destTable)
+	// todo: add indexes
 	if _, err := db.ExecContext(ctx, createTableQuery); err != nil {
 		errorLog.Printf("Error creating table %s: %v", destTable, err)
 		return err
@@ -261,9 +333,9 @@ func (d *Detector) writeResults() error {
 
 	for _, mp := range d.markedPoints {
 		upsertQuery := fmt.Sprintf(`
-			INSERT INTO %s (dt, step, value, is_outlier, lower_bound, upper_bound, detection_method, last_update) 
-			VALUES (NULL, $1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT (step, detection_method)
+			INSERT INTO %s (t, value, is_outlier, lower_bound, upper_bound, method, last_update, detector) 
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (t, detector)
 			DO UPDATE SET
 				value = EXCLUDED.value,
 				is_outlier = EXCLUDED.is_outlier,
@@ -272,8 +344,8 @@ func (d *Detector) writeResults() error {
 				last_update = EXCLUDED.last_update
 		`, destTable)
 
-		if _, err := db.ExecContext(ctx, upsertQuery, mp.T, mp.Value, mp.IsOutlier, mp.LowerBound, mp.UpperBound, d.DetectionMethod, d.LastUpdate); err != nil {
-			errorLog.Printf("Error inserting outlier for %d: %v", mp.T, err)
+		if _, err := db.ExecContext(ctx, upsertQuery, mp.T, mp.Value, mp.IsOutlier, mp.LowerBound, mp.UpperBound, d.DetectionMethod, d.LastUpdate, d.Title); err != nil {
+			errorLog.Printf("Error inserting outlier: %v", err)
 			return err
 		}
 	}
@@ -378,15 +450,16 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 
 	selectOutliersQuery := fmt.Sprintf(`
 		select 
-			step as ts,
+			t,
 			value,
 			is_outlier,
 			lower_bound,
 			upper_bound
 		from %s
-		order by ts asc
+		where detector = $1
+		order by t asc
 	`, d.OutputTable)
-	outliersRows, err := db.Query(selectOutliersQuery)
+	outliersRows, err := db.Query(selectOutliersQuery, d.Title)
 	if err != nil {
 		errorLog.Println(err)
 		http.Error(w, "query failed", http.StatusInternalServerError)
@@ -402,6 +475,7 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "scan failed", http.StatusInternalServerError)
 			return
 		}
+		mp.TUnix = mp.T.Unix()
 		outliers = append(outliers, mp)
 	}
 

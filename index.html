@@ -155,7 +155,7 @@ class XDetector extends HTMLElement {
 		<div class="uplot"></div>
 		<div class="detector-info">
 			<p><span class="label">ConnectionString:</span><span class="value">${escapeHTML(this.detector.ConnectionString)}</span></p>
-			<p><span class="label">DataTable:</span><span class="value">${escapeHTML(this.detector.DataTable)}</span></p>
+			<p><span class="label">DataSQL:</span><span class="value">${escapeHTML(this.detector.DataSQL)}</span></p>
 			<p><span class="label">OutputTable:</span><span class="value">${escapeHTML(this.detector.OutputTable)}</span></p>
 			<p><span class="label">Backsteps:</span><span class="value">${this.detector.Backsteps}</span></p>
 			<p><span class="label">DetectionMethod:</span><span class="value">${escapeHTML(this.detector.DetectionMethod)}</span></p>
@@ -189,7 +189,7 @@ class XDetector extends HTMLElement {
 			height: 300,
 			//padding: [null, null, null, 50], // top, right, bottom, left 
 			scales: {
-				x: { time: false },
+				x: { time: true },
 				y: { auto: true },
 			},
 			series: [
