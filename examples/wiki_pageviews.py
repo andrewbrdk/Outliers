@@ -7,7 +7,7 @@ from psycopg2.extras import execute_values
 
 PGCON = {
     'host': 'localhost', # locally
-    #'host': 'clickhouse', # docker
+    #'host': 'postgres', # docker
     'port': 5432,
     'database': 'outliers',
     'user': 'pguser', 
@@ -17,7 +17,18 @@ PGCON = {
 # https://doc.wikimedia.org/generated-data-platform/aqs/analytics-api/concepts/page-views.html
 # https://doc.wikimedia.org/generated-data-platform/aqs/analytics-api/reference/page-views.html
 
-wikiproject = 'en.wikipedia'
+wikiproject = [
+    "en.wikipedia",
+    "ja.wikipedia",
+    "de.wikipedia",
+    "fr.wikipedia",
+    "ru.wikipedia",
+    "es.wikipedia",
+    "it.wikipedia",
+    "zh.wikipedia",
+    "pt.wikipedia",
+    "pl.wikipedia",
+]
 base_url = "https://wikimedia.org/api/rest_v1/metrics/pageviews/aggregate/{wikiproject}/all-access/user/daily/{start_date}/{end_date}"
 
 # https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy
@@ -35,9 +46,9 @@ CREATE TABLE IF NOT EXISTS wiki_pageviews (
 DELETE_FROM_WIKI_PAGEVIEWS = """
     DELETE FROM wiki_pageviews
     WHERE
-        project = '{wikiproject}'
-        and dt >= '{start_date}'
-        and dt <= '{end_date}'
+        project = %s
+        and dt >= %s
+        and dt <= %s
 """
 
 INSERT_WIKI_PAGEVIEWS = """
@@ -61,36 +72,37 @@ def main():
     start_date = start_date.strftime('%Y%m%d')
 
     try:
-        response = requests.get(
-            base_url.format(wikiproject=wikiproject, start_date=start_date, end_date=end_date), 
-            headers=headers)
-        response.raise_for_status()
-        data = response.json()
-    except Exception as e:
-        print(f"Error fetching data: {e}")
-        sys.exit(1)
-
-    views = [
-        (datetime.strptime(item['timestamp'],'%Y%m%d00').date(), item['project'], item['views']) 
-        for item in data['items']
-    ]
-
-    print('Pageviews:')
-    print(views)
-
-    try:
         conn = psycopg2.connect(**PGCON)
         cur = conn.cursor()
         cur.execute(CREATE_WIKI_PAGEVIEWS)
-        cur.execute(DELETE_FROM_WIKI_PAGEVIEWS.format(wikiproject=wikiproject, start_date=start_date, end_date=end_date))
-        execute_values(cur, INSERT_WIKI_PAGEVIEWS, views)
-        conn.commit()
-        cur.close()
-        conn.close()
-        print("Data successfully written to PostgreSQL.")
     except Exception as e:
-        print(f"Error writing to DB: {e}")
+        print(f"Error connecting to the database: {e}")
         sys.exit(1)
+    
+    for w in wikiproject:
+        try:
+            print(f"Fetching {w}")
+            response = requests.get(
+                base_url.format(wikiproject=w, start_date=start_date, end_date=end_date), 
+                headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:                
+            print(f"Error fetching data for {w}: {e}")
+            continue
+        views = [(datetime.strptime(item['timestamp'],'%Y%m%d00').date(), 
+             item['project'], item['views']) for item in data['items']]
+    
+        print(f"Fetched {len(views)} records for {w}")
+
+        try:
+            cur.execute(DELETE_FROM_WIKI_PAGEVIEWS, (w, start_date, end_date))
+            execute_values(cur, INSERT_WIKI_PAGEVIEWS, views)
+            conn.commit()
+            print(f"Data successfully written for {w}")
+        except Exception as e:
+            print(f"Error writing to DB for {w}: {e}")
+            conn.rollback()
 
 if __name__ == "__main__":
     main()

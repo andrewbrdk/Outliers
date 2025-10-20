@@ -4,7 +4,7 @@ title = "Wiki Pageviews"
 connection = "postgres://pguser:password123@localhost:5432/outliers"
 data_sql = "select dt::timestamp as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-backsteps = 30
+backsteps = 90
 detection_method = 'mean10prc'
 
 
@@ -14,5 +14,5 @@ title = "Wiki Pageviews Projects"
 connection = "postgres://pguser:password123@localhost:5432/outliers"
 data_sql = "select dt::timestamp as t, project as dim, views as value from wiki_pageviews"
 output = "wiki_pageviews_outliers"
-backsteps = 30
+backsteps = 90
 detection_method = 'mean10prc'
