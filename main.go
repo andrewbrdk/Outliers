@@ -20,7 +20,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-//go:embed index.html
+//go:embed index.html style.css
 var embedded embed.FS
 
 var infoLog *log.Logger
@@ -453,6 +453,7 @@ type Response struct {
 
 func httpServer() {
 	http.HandleFunc("/", httpIndex)
+	http.Handle("/style.css", http.FileServer(http.FS(embedded)))
 	http.HandleFunc("/outliers", httpOutliers)
 	http.HandleFunc("/outliers/update", outliersUpdateHandler)
 	http.HandleFunc("/outliers/plot", outliersPlotHandler)
