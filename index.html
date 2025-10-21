@@ -38,6 +38,15 @@
 			}
 			.detector-header h3 {
 				margin: 0;
+				flex: 10;
+			}
+			.detector-header .outliers-text {
+				flex: 70;
+				text-align: center;
+			}
+			.detector-header .update {
+				flex: 20;
+				text-align: right;
 			}
 			.plots {
 				display: flex;
@@ -168,12 +177,17 @@ class XDetector extends HTMLElement {
 	}
 	
 	async HTML() {
+		let outliers_text = ``;
+		if (this.detector.TotalOutliers > 0) {
+			outliers_text = `<span>${this.detector.TotalOutliers} outliers in ${this.detector.DimsWithOutliers} dimensions</span>`
+		}
 		let html = `
 		<div class="detector-header">
 			<h3>${escapeHTML(this.detector.Title)}</h3>
+			<div class="outliers-text">${outliers_text}</div>
 			<div>
 				Updated: ${this.detector.LastUpdate ? this.formatDateTime(new Date(this.detector.LastUpdate)) : 'N/A'}
-				<button class="check-outliers-btn">Check Outliers</button>
+				<button class="check-outliers-btn">Update</button>
 			</div>
 		</div>
 		<div class="plots"></div>

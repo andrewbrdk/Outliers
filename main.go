@@ -52,6 +52,8 @@ type Detector struct {
 	markedPoints     map[string][]MarkedPoint `toml:"-"`
 	LastUpdate       time.Time                `toml:"-"`
 	hasDims          bool                     `toml:"-"`
+	TotalOutliers    int                      `toml:"-"`
+	DimsWithOutliers int                      `toml:"-"`
 }
 
 type Point struct {
@@ -322,7 +324,8 @@ func (d *Detector) markOutliers() error {
 	}
 
 	d.markedPoints = make(map[string][]MarkedPoint)
-	totalOutliers := 0
+	d.TotalOutliers = 0
+	d.DimsWithOutliers = 0
 
 	for dim, pts := range d.points {
 
@@ -359,14 +362,17 @@ func (d *Detector) markOutliers() error {
 		}
 
 		d.markedPoints[dim] = dimMarked
-		totalOutliers += outlierCount
+		d.TotalOutliers += outlierCount
+		if outlierCount > 0 {
+			d.DimsWithOutliers++
+		}
 
 		infoLog.Printf("Dim=%s: detected %d outliers in last %d points", dim, outlierCount, d.Backsteps)
 	}
 	d.LastUpdate = time.Now()
 	infoLog.Printf(
 		"Outlier detection complete for %s: total %d outliers detected (method=%s)",
-		d.Title, totalOutliers, d.DetectionMethod,
+		d.Title, d.TotalOutliers, d.DetectionMethod,
 	)
 	return nil
 }
