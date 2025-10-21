@@ -46,6 +46,56 @@
 				gap: 20px;
 				margin: 20px auto;
 			}
+			.plot-wrapper {
+				display: grid;
+				grid-template-columns: 10% 70% 20%; /* Dim | Plot | List */
+				align-items: start;
+				gap: 20px;
+				width: 100%;
+			}
+			.dim-title {
+				display: flex;
+				font-weight: bold;
+				text-align: center;
+				padding-top: 1rem;
+			}
+			.uplot {
+				width: 100%;
+				height: 300px; 
+			}
+			/* .outliers-list {
+				font-size: 0.9rem;
+				background: #f9f9f9;
+				border: 1px solid #ddd;
+				padding: 8px;
+				max-height: 300px;
+				overflow-y: auto;
+			}
+			.outliers-list div {
+				margin-bottom: 2px;
+			} */
+			.outliers-scroll {
+				max-height: 300px;
+				overflow-y: auto;
+				border: 1px solid #ccc;
+				padding: 4px;
+			}
+			.outliers-table {
+				width: 100%;
+				border-collapse: collapse;
+				font-size: 0.9rem;
+			}
+			.outliers-table th,
+			.outliers-table td {
+				border: 1px solid #ccc;
+				padding: 4px 8px;
+				text-align: left;
+			}
+			.outliers-table th {
+				background-color: #f0f0f0;
+				position: sticky;
+				top: 0;
+			}
 			.detector-info {
 				display: grid;
 				grid-template-columns: max-content 1fr;
@@ -178,6 +228,51 @@ class XDetector extends HTMLElement {
 
 		for (const [dim, points] of Object.entries(data.outliers)) {
 			if (!points.length) continue;
+
+			const plotWrapper = document.createElement("div");
+			plotWrapper.classList.add("plot-wrapper");
+			const dimLabel = document.createElement("div");
+			dimLabel.classList.add("dim-title");
+			dimLabel.textContent = dim;
+			const plotDiv = document.createElement("div");
+			plotDiv.classList.add("uplot");
+			const outlierList = document.createElement("div");
+			// outlierList.classList.add("outliers-list");
+			// outlierList.innerHTML = points
+			// 	.filter(p => p.IsOutlier)
+			// 	.map(p => `<div>${new Date(p.T*1000).toISOString().slice(0,10)} → ${p.Value}</div>`)
+			// 	.join("");
+			const outlierPoints = points.filter(p => p.IsOutlier);
+			if (outlierPoints.length) {
+				const tableRows = outlierPoints.map(p => `
+					<tr>
+						<td>${new Date(p.T*1000).toISOString().slice(0,10)}</td>
+						<td>${p.Value}</td>
+					</tr>
+				`).join("");
+
+				outlierList.innerHTML = `
+					<div class="outliers-scroll">
+						<table class="outliers-table">
+							<thead>
+								<tr>
+									<th>Date</th>
+									<th>Value</th>
+								</tr>
+							</thead>
+							<tbody>
+								${tableRows}
+							</tbody>
+						</table>
+					</div>`;
+			} else {
+				outlierList.textContent = "No outliers";
+			}
+			plotWrapper.appendChild(dimLabel);
+			plotWrapper.appendChild(plotDiv);
+			plotWrapper.appendChild(outlierList);
+			container.appendChild(plotWrapper);
+
 			const x = points.map(p => p.T);
 			const y = points.map(p => p.Value);
 			const outliers = points.map(p => p.IsOutlier ? p.Value : null);
@@ -187,56 +282,22 @@ class XDetector extends HTMLElement {
 			const uplotData = [x, y, outliers, lower, upper];
 
 			const opts = {
-				title: dim ? `Dimension: ${dim}` : "",
-				width: 1000,
+				width: plotDiv.clientWidth,
 				height: 300,
 				//padding: [null, null, null, 50], // top, right, bottom, left 
-				scales: {
-					x: { time: true },
-					y: { auto: true },
-				},
+				scales: { x: { time: true }, y: { auto: true } },
 				series: [
 					{},
-					{ 
-						label: "Original", 
-						stroke: "black", 
-						width: 2,
-						points: {show: false} 
-					},
-					{ 
-						label: "Outliers", 
-						stroke: "transparent",
-						fill: "transparent",
-						points: {show: true, size: 6, stroke: "red", fill: "red",},
-					},
-					{ 
-						label: "Lower Bound", 
-						stroke: "black", 
-						dash: [20, 5],
-						width: 2,
-						points: {show: false},
-						band: true,
-					},
-					{ 
-						label: "Upper Bound", 
-						stroke: "black", 
-						dash: [20, 5],
-						width: 2,
-						points: {show: false},
-						band: true,
-					},
+					{ label: "Original", stroke: "black", width: 2, points: {show: false} },
+					{ label: "Outliers", stroke: "transparent", fill: "transparent", points: {show: true, size: 6, stroke: "red", fill: "red" } },
+					{ label: "Lower Bound", stroke: "black", dash: [20, 5], width: 2, points: {show: false}, band: true },
+					{ label: "Upper Bound", stroke: "black", dash: [20, 5], width: 2, points: {show: false}, band: true },
 				],
-				cursor: {
-					drag: {x: true, y: false},
-					lock: true,
-				},
+				cursor: {drag: {x: true, y: false}, lock: true},
 				legend: {show: false},
 			};
-
-			const plotWrapper = document.createElement("div");
-			plotWrapper.classList.add("plot-wrapper");
-			container.appendChild(plotWrapper);
-			new uPlot(opts, uplotData, plotWrapper);
+			
+			new uPlot(opts, uplotData, plotDiv);
 		}
 	}
 
