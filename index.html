@@ -62,40 +62,11 @@
 			.uplot {
 				width: 100%;
 				height: 300px; 
+				flex: 1 1 auto;
 			}
-			/* .outliers-list {
-				font-size: 0.9rem;
-				background: #f9f9f9;
-				border: 1px solid #ddd;
-				padding: 8px;
-				max-height: 300px;
-				overflow-y: auto;
-			}
-			.outliers-list div {
-				margin-bottom: 2px;
-			} */
-			.outliers-scroll {
-				max-height: 300px;
-				overflow-y: auto;
-				border: 1px solid #ccc;
-				padding: 4px;
-			}
-			.outliers-table {
-				width: 100%;
-				border-collapse: collapse;
-				font-size: 0.9rem;
-			}
-			.outliers-table th,
-			.outliers-table td {
-				border: 1px solid #ccc;
-				padding: 4px 8px;
-				text-align: left;
-			}
-			.outliers-table th {
-				background-color: #f0f0f0;
-				position: sticky;
-				top: 0;
-			}
+			.uplot-legend {
+				padding-top: 1rem;
+			} 
 			.detector-info {
 				display: grid;
 				grid-template-columns: max-content 1fr;
@@ -234,43 +205,13 @@ class XDetector extends HTMLElement {
 			const dimLabel = document.createElement("div");
 			dimLabel.classList.add("dim-title");
 			dimLabel.textContent = dim;
+			plotWrapper.appendChild(dimLabel);
 			const plotDiv = document.createElement("div");
 			plotDiv.classList.add("uplot");
-			const outlierList = document.createElement("div");
-			// outlierList.classList.add("outliers-list");
-			// outlierList.innerHTML = points
-			// 	.filter(p => p.IsOutlier)
-			// 	.map(p => `<div>${new Date(p.T*1000).toISOString().slice(0,10)} → ${p.Value}</div>`)
-			// 	.join("");
-			const outlierPoints = points.filter(p => p.IsOutlier);
-			if (outlierPoints.length) {
-				const tableRows = outlierPoints.map(p => `
-					<tr>
-						<td>${new Date(p.T*1000).toISOString().slice(0,10)}</td>
-						<td>${p.Value}</td>
-					</tr>
-				`).join("");
-
-				outlierList.innerHTML = `
-					<div class="outliers-scroll">
-						<table class="outliers-table">
-							<thead>
-								<tr>
-									<th>Date</th>
-									<th>Value</th>
-								</tr>
-							</thead>
-							<tbody>
-								${tableRows}
-							</tbody>
-						</table>
-					</div>`;
-			} else {
-				outlierList.textContent = "No outliers";
-			}
-			plotWrapper.appendChild(dimLabel);
+			const legendDiv = document.createElement("div");
 			plotWrapper.appendChild(plotDiv);
-			plotWrapper.appendChild(outlierList);
+        	legendDiv.classList.add("uplot-legend");
+        	plotWrapper.appendChild(legendDiv);			
 			container.appendChild(plotWrapper);
 
 			const x = points.map(p => p.T);
@@ -288,13 +229,17 @@ class XDetector extends HTMLElement {
 				scales: { x: { time: true }, y: { auto: true } },
 				series: [
 					{},
-					{ label: "Original", stroke: "black", width: 2, points: {show: false} },
+					{ label: "Value", stroke: "black", width: 2, points: {show: false} },
 					{ label: "Outliers", stroke: "transparent", fill: "transparent", points: {show: true, size: 6, stroke: "red", fill: "red" } },
 					{ label: "Lower Bound", stroke: "black", dash: [20, 5], width: 2, points: {show: false}, band: true },
-					{ label: "Upper Bound", stroke: "black", dash: [20, 5], width: 2, points: {show: false}, band: true },
+					{ label: "Upper Bound", stroke: "black", dash: [20, 5], width: 2, points: {show: false}, band: true, legend: {show: false} },
 				],
 				cursor: {drag: {x: true, y: false}, lock: true},
-				legend: {show: false},
+				legend: {
+					show: true,
+					live: true,
+					mount: (self, legendEl) => { legendDiv.appendChild(legendEl); }  
+				}
 			};
 			
 			new uPlot(opts, uplotData, plotDiv);
