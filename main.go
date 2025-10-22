@@ -14,9 +14,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/fsnotify/fsnotify"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	hcron "github.com/lnquy/cron"
 	"github.com/robfig/cron/v3"
@@ -36,6 +38,7 @@ type Outliers struct {
 	counter   int
 	Parsed    []*Detector `toml:"detectors"`
 	cron      *cron.Cron
+	mu        sync.RWMutex
 }
 
 type Config struct {
@@ -89,6 +92,7 @@ func main() {
 	OTL.cron = cron.New()
 	OTL.loadDetectors(CONF.confFile)
 	OTL.cron.Start()
+	go startFSWatcher()
 	httpServer()
 }
 
@@ -103,34 +107,98 @@ func initConfig() {
 	}
 }
 
+func startFSWatcher() {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer watcher.Close()
+
+	err = watcher.Add(CONF.confFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+				OTL.loadDetectors(CONF.confFile)
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			errorLog.Println("fsnotify:", err)
+		}
+	}
+}
+
 func (ot *Outliers) loadDetectors(filename string) error {
+	//todo: fix
+	ot.mu.Lock()
+	defer ot.mu.Unlock()
 	f, err := os.ReadFile(filename)
 	if err != nil {
-		errorLog.Printf("Error reading file %s: %v\n", filename, err)
+		errorLog.Printf("Error reading file %s: %v", filename, err)
 		return err
 	}
-	err = toml.Unmarshal(f, ot)
-	if err != nil {
-		errorLog.Printf("Error parsing file %s: %v\n", filename, err)
+	var tmp Outliers
+	if err := toml.Unmarshal(f, &tmp); err != nil {
+		errorLog.Printf("Error parsing file %s: %v", filename, err)
 		return err
 	}
-	ot.Detectors = make(map[int]*Detector)
-	for i, d := range ot.Parsed {
-		err := d.validateConf()
-		if err != nil {
-			errorLog.Printf("Skipping invalid detector config at index %d", i)
-			continue
+	if ot.Detectors == nil {
+		ot.Detectors = make(map[int]*Detector)
+	}
+
+	confDetectors := make(map[string]*Detector)
+	currentDetectors := make(map[string]*Detector)
+	for _, d := range tmp.Parsed {
+		confDetectors[d.Title] = d
+	}
+	for _, d := range ot.Detectors {
+		currentDetectors[d.Title] = d
+	}
+
+	for title, d := range confDetectors {
+		if existing, ok := currentDetectors[title]; ok {
+			noChanges := d.DataSQL == existing.DataSQL &&
+				d.OutputTable == existing.OutputTable &&
+				d.Backsteps == existing.Backsteps &&
+				d.DetectionMethod == existing.DetectionMethod &&
+				d.CronSchedule == existing.CronSchedule &&
+				d.ConnectionString == existing.ConnectionString
+			if noChanges {
+				infoLog.Printf("No changes for detector '%s', skipping reload", d.Title)
+				continue
+			}
+			ot.cron.Remove(existing.cronID)
+			delete(ot.Detectors, existing.Id)
+			infoLog.Printf("Reloading detector '%s' due to config changes", d.Title)
+		} else {
+			infoLog.Printf("Loading new detector '%s'", d.Title)
 		}
-		//todo: default off
+		d.Id = ot.counter
 		d.OnOff = true
+		ot.Detectors[ot.counter] = d
 		if d.CronSchedule != "" {
 			ot.scheduleDetectorUpdate(d)
 		}
-		ot.Detectors[ot.counter] = d
-		d.Id = ot.counter
-		ot.counter += 1
+		ot.counter++
 	}
-	infoLog.Printf("Loaded %d configs from %s", len(ot.Detectors), filename)
+
+	for id, existing := range ot.Detectors {
+		if _, ok := confDetectors[existing.Title]; !ok {
+			ot.cron.Remove(existing.cronID)
+			delete(ot.Detectors, id)
+			infoLog.Printf("Removed detector '%s' (id=%d, not in config)", existing.Title, id)
+		}
+	}
+	infoLog.Printf("Loaded %d detectors from %s", len(ot.Detectors), filename)
 	return nil
 }
 
