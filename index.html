@@ -73,12 +73,10 @@ class XDetector extends HTMLElement {
 
 	bindEvents() {
 		this.unbindEvents();
-		const btn = this.querySelector('.check-outliers-btn');
-		if (btn) {
-			btn.addEventListener('click', async () => {
-				await this.onCheckOutliers();
-			});
-		}
+		let btn = this.querySelector('button.check-outliers-btn');
+		if (btn) btn.onclick = () => this.onCheckOutliers();
+		btn = this.querySelector('button.onoff-btn');
+		if (btn) btn.onclick = () => this.onOff();
 	}
 	
 	unbindEvents() {
@@ -86,7 +84,7 @@ class XDetector extends HTMLElement {
 	}
 	
 	async HTML() {
-		let outliers_text = ``;
+		let outliers_text = '';
 		if (this.detector.TotalOutliers > 0) {
 			outliers_text = `${this.detector.TotalOutliers} outliers`;
 			if (this.detector.DimsWithOutliers > 1) {
@@ -94,7 +92,7 @@ class XDetector extends HTMLElement {
 			}
 		}
 		let schedule_text = escapeHTML(this.detector.HCron);
-		let upd_text = this.detector.LastUpdate ? this.formatDateTime(new Date(this.detector.LastUpdate)) : 'N/A' ;
+		let upd_text = this.detector.LastUpdate && this.detector.LastUpdate != "0001-01-01T00:00:00Z" ? this.formatDateTime(new Date(this.detector.LastUpdate)) : '-' ;
 		
 		let html = `
 		<div class="detector-header">
@@ -103,6 +101,9 @@ class XDetector extends HTMLElement {
 			<div>
 				<span class="schedule">${schedule_text}</span>
 				<button class="check-outliers-btn">Update</button>
+				<button class="onoff-btn">${this.detector.OnOff ? 'Turn Off' : 'Turn On'}</button>
+				<br>
+				<span class="last-update">Last Update: ${upd_text}</span>
 			</div>
 		</div>
 		<div class="plots"></div>
@@ -177,7 +178,6 @@ class XDetector extends HTMLElement {
 
 	async onCheckOutliers() {
 		if (!this.detector) return;
-
 		try {
 			const res = await fetch(`/outliers/update?id=${encodeURIComponent(this.detector.Id)}`, {
             	method: 'POST'
@@ -191,14 +191,29 @@ class XDetector extends HTMLElement {
 		}
 	}
 
+	async onOff() {
+		if (!this.detector) return;
+		try {
+			const res = await fetch(`/outliers/onoff?id=${encodeURIComponent(this.detector.Id)}`, {
+            	method: 'POST'
+			});
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const result = await res.json();
+			this.detector = result.detector;
+			await this.update();
+		} catch (err) {
+			console.error('Error turning on-off:', err);
+		}
+	}
+
 	formatDateTime(d) {
 		return (
 			d.getDate().toString().padStart(2, '0') + "-" +
 			(d.getMonth()+1).toString().padStart(2, '0') + "-" +
 			d.getFullYear() + " " + 
 			d.getHours().toString().padStart(2, '0') + ":" + 
-			d.getMinutes().toString().padStart(2, '0') + ":" +
-			d.getSeconds().toString().padStart(2, '0')
+			d.getMinutes().toString().padStart(2, '0')
+			// + ":" + d.getSeconds().toString().padStart(2, '0')
 		);
 	}
 }

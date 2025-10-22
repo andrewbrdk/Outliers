@@ -61,6 +61,7 @@ type Detector struct {
 	HCron            string                   `toml:"-"`
 	cronID           cron.EntryID             `toml:"-"`
 	NextScheduled    time.Time                `toml:"-"`
+	OnOff            bool                     `toml:"-"`
 }
 
 type Point struct {
@@ -120,6 +121,8 @@ func (ot *Outliers) loadDetectors(filename string) error {
 			errorLog.Printf("Skipping invalid detector config at index %d", i)
 			continue
 		}
+		//todo: default off
+		d.OnOff = true
 		if d.CronSchedule != "" {
 			ot.scheduleDetectorUpdate(d)
 		}
@@ -168,6 +171,9 @@ func (d *Detector) validateConf() error {
 
 func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
 	var err error
+	if !d.OnOff {
+		return
+	}
 	d.cronID, err = ot.cron.AddFunc(d.CronSchedule, func() {
 		infoLog.Printf("Scheduled update for detector '%s' started", d.Title)
 		err := d.detectOutliers()
@@ -487,6 +493,7 @@ func httpServer() {
 	http.HandleFunc("/outliers", httpOutliers)
 	http.HandleFunc("/outliers/update", outliersUpdateHandler)
 	http.HandleFunc("/outliers/plot", outliersPlotHandler)
+	http.HandleFunc("/outliers/onoff", outliersOnOffHandler)
 	log.Fatal(http.ListenAndServe(CONF.port, nil))
 }
 
@@ -619,4 +626,43 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 		errorLog.Printf("Encoding error: %v", err)
 		http.Error(w, "encode failed", http.StatusInternalServerError)
 	}
+}
+
+func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	if idStr == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(Response{Status: "error", Message: "missing id"})
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(Response{Status: "error", Message: "invalid id"})
+		return
+	}
+	d := OTL.Detectors[id]
+	if d == nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(Response{Status: "error", Message: "forecast not found"})
+		return
+	}
+	if d.OnOff {
+		OTL.cron.Remove(d.cronID)
+		d.OnOff = false
+		d.NextScheduled = time.Time{}
+		infoLog.Printf("Detector '%s' turned OFF", d.Title)
+	} else {
+		d.OnOff = true
+		OTL.scheduleDetectorUpdate(d)
+		infoLog.Printf("Detector '%s' turned ON", d.Title)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Status   string    `json:"status"`
+		Detector *Detector `json:"detector"`
+	}{
+		Status:   "ok",
+		Detector: d,
+	})
 }
