@@ -18,6 +18,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	hcron "github.com/lnquy/cron"
+	"github.com/robfig/cron/v3"
 )
 
 //go:embed index.html style.css
@@ -33,6 +35,7 @@ type Outliers struct {
 	Detectors map[int]*Detector
 	counter   int
 	Parsed    []*Detector `toml:"detectors"`
+	cron      *cron.Cron
 }
 
 type Config struct {
@@ -54,6 +57,10 @@ type Detector struct {
 	hasDims          bool                     `toml:"-"`
 	TotalOutliers    int                      `toml:"-"`
 	DimsWithOutliers int                      `toml:"-"`
+	CronSchedule     string                   `toml:"cron_schedule"`
+	HCron            string                   `toml:"-"`
+	cronID           cron.EntryID             `toml:"-"`
+	NextScheduled    time.Time                `toml:"-"`
 }
 
 type Point struct {
@@ -78,14 +85,9 @@ func main() {
 	initConfig()
 	infoLog = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 	errorLog = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
+	OTL.cron = cron.New()
 	OTL.loadDetectors(CONF.confFile)
-	// todo: run detection on schedule
-	for _, d := range OTL.Detectors {
-		err := d.detectOutliers()
-		if err != nil {
-			errorLog.Printf("Error detecting outliers '%s': %v", d.Title, err)
-		}
-	}
+	OTL.cron.Start()
 	httpServer()
 }
 
@@ -117,6 +119,9 @@ func (ot *Outliers) loadDetectors(filename string) error {
 		if err != nil {
 			errorLog.Printf("Skipping invalid detector config at index %d", i)
 			continue
+		}
+		if d.CronSchedule != "" {
+			ot.scheduleDetectorUpdate(d)
 		}
 		ot.Detectors[ot.counter] = d
 		d.Id = ot.counter
@@ -159,6 +164,31 @@ func (d *Detector) validateConf() error {
 		return fmt.Errorf("invalid backsteps: %d", d.Backsteps)
 	}
 	return nil
+}
+
+func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
+	var err error
+	d.cronID, err = ot.cron.AddFunc(d.CronSchedule, func() {
+		infoLog.Printf("Scheduled update for detector '%s' started", d.Title)
+		err := d.detectOutliers()
+		if err != nil {
+			errorLog.Printf("Error detecting outliers '%s': %v", d.Title, err)
+		}
+		d.NextScheduled = ot.cron.Entry(d.cronID).Next
+	})
+	if err != nil {
+		errorLog.Printf("Error scheduling detector '%s' update: %v", d.Title, err)
+		return
+	}
+	d.NextScheduled = ot.cron.Entry(d.cronID).Next
+	infoLog.Printf("Scheduled outlier detection for %s with cron %s", d.Title, d.CronSchedule)
+	exprDesc, _ := hcron.NewDescriptor(hcron.Use24HourTimeFormat(true))
+	d.HCron, err = exprDesc.ToDescription(d.CronSchedule, hcron.Locale_en)
+	if d.CronSchedule == "" {
+		d.HCron = ""
+	} else if err != nil {
+		d.HCron = d.CronSchedule
+	}
 }
 
 func (d *Detector) detectOutliers() error {

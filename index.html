@@ -88,14 +88,20 @@ class XDetector extends HTMLElement {
 	async HTML() {
 		let outliers_text = ``;
 		if (this.detector.TotalOutliers > 0) {
-			outliers_text = `<span>${this.detector.TotalOutliers} outliers in ${this.detector.DimsWithOutliers} dimensions</span>`
+			outliers_text = `${this.detector.TotalOutliers} outliers`;
+			if (this.detector.DimsWithOutliers > 1) {
+				outliers_text += ` in ${this.detector.DimsWithOutliers} dimensions`;
+			}
 		}
+		let schedule_text = escapeHTML(this.detector.HCron);
+		let upd_text = this.detector.LastUpdate ? this.formatDateTime(new Date(this.detector.LastUpdate)) : 'N/A' ;
+		
 		let html = `
 		<div class="detector-header">
 			<h3>${escapeHTML(this.detector.Title)}</h3>
 			<div class="outliers-text">${outliers_text}</div>
 			<div>
-				Updated: ${this.detector.LastUpdate ? this.formatDateTime(new Date(this.detector.LastUpdate)) : 'N/A'}
+				<span class="schedule">${schedule_text}</span>
 				<button class="check-outliers-btn">Update</button>
 			</div>
 		</div>

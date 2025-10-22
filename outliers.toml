@@ -6,6 +6,7 @@ data_sql = "select dt::timestamp as t, views as value from wiki_pageviews where 
 output = "wiki_pageviews_outliers"
 backsteps = 90
 detection_method = 'mean10prc'
+cron_schedule = "*/1 * * * *"
 
 
 [[detectors]]

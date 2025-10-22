@@ -5,6 +5,8 @@ go 1.19
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/jackc/pgx/v5 v5.5.5
+	github.com/lnquy/cron v1.1.1
+	github.com/robfig/cron/v3 v3.0.1
 )
 
 require (
