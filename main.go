@@ -36,7 +36,6 @@ var CONF Config
 type Outliers struct {
 	Detectors map[int]*Detector
 	counter   int
-	Parsed    []*Detector `toml:"detectors"`
 	cron      *cron.Cron
 	mu        sync.RWMutex
 }
@@ -126,7 +125,11 @@ func startFSWatcher() {
 				return
 			}
 			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-				OTL.loadDetectors(CONF.confFile)
+				//todo: prevent multiple triggers
+				go func() {
+					time.Sleep(300 * time.Millisecond) //prevents reading incomplete file
+					OTL.loadDetectors(CONF.confFile)
+				}()
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -138,7 +141,6 @@ func startFSWatcher() {
 }
 
 func (ot *Outliers) loadDetectors(filename string) error {
-	//todo: fix
 	ot.mu.Lock()
 	defer ot.mu.Unlock()
 	f, err := os.ReadFile(filename)
@@ -146,37 +148,41 @@ func (ot *Outliers) loadDetectors(filename string) error {
 		errorLog.Printf("Error reading file %s: %v", filename, err)
 		return err
 	}
-	var tmp Outliers
+	type OutliersConf struct {
+		Parsed []*Detector `toml:"detectors"`
+	}
+	var tmp OutliersConf
 	if err := toml.Unmarshal(f, &tmp); err != nil {
 		errorLog.Printf("Error parsing file %s: %v", filename, err)
 		return err
 	}
+	confDetectors := make(map[string]*Detector)
+	for _, d := range tmp.Parsed {
+		err = d.validateConf()
+		if err != nil {
+			errorLog.Printf("Skipping invalid config in %s: %v", d.Title, err)
+			continue
+		}
+		confDetectors[d.Title] = d
+		infoLog.Printf("Validated config for detector '%s'", d.Title)
+	}
+
 	if ot.Detectors == nil {
 		ot.Detectors = make(map[int]*Detector)
 	}
-
-	confDetectors := make(map[string]*Detector)
 	currentDetectors := make(map[string]*Detector)
-	for _, d := range tmp.Parsed {
-		confDetectors[d.Title] = d
-	}
 	for _, d := range ot.Detectors {
 		currentDetectors[d.Title] = d
 	}
 
 	for title, d := range confDetectors {
 		if existing, ok := currentDetectors[title]; ok {
-			noChanges := d.DataSQL == existing.DataSQL &&
-				d.OutputTable == existing.OutputTable &&
-				d.Backsteps == existing.Backsteps &&
-				d.DetectionMethod == existing.DetectionMethod &&
-				d.CronSchedule == existing.CronSchedule &&
-				d.ConnectionString == existing.ConnectionString
-			if noChanges {
+			if noConfChanges(existing, d) {
 				infoLog.Printf("No changes for detector '%s', skipping reload", d.Title)
 				continue
 			}
 			ot.cron.Remove(existing.cronID)
+			//todo: stop sqls
 			delete(ot.Detectors, existing.Id)
 			infoLog.Printf("Reloading detector '%s' due to config changes", d.Title)
 		} else {
@@ -194,11 +200,12 @@ func (ot *Outliers) loadDetectors(filename string) error {
 	for id, existing := range ot.Detectors {
 		if _, ok := confDetectors[existing.Title]; !ok {
 			ot.cron.Remove(existing.cronID)
+			//todo: stop sqls
 			delete(ot.Detectors, id)
 			infoLog.Printf("Removed detector '%s' (id=%d, not in config)", existing.Title, id)
 		}
 	}
-	infoLog.Printf("Loaded %d detectors from %s", len(ot.Detectors), filename)
+	infoLog.Printf("Configured %d detectors from %s", len(ot.Detectors), filename)
 	return nil
 }
 
@@ -206,12 +213,6 @@ func (d *Detector) validateConf() error {
 	if d.Title == "" {
 		errorLog.Printf("Config missing title")
 		return errors.New("Invalid Config: missing title")
-	}
-	for _, other := range OTL.Detectors {
-		if other != d && other.Title == d.Title {
-			errorLog.Printf("Duplicate title found: %s", d.Title)
-			return fmt.Errorf("Invalid Config: duplicate title '%s'", d.Title)
-		}
 	}
 	if d.ConnectionString == "" {
 		errorLog.Printf("Config '%s' missing connection string", d.Title)
@@ -235,6 +236,15 @@ func (d *Detector) validateConf() error {
 		return fmt.Errorf("invalid backsteps: %d", d.Backsteps)
 	}
 	return nil
+}
+
+func noConfChanges(d1 *Detector, d2 *Detector) bool {
+	return d1.DataSQL == d2.DataSQL &&
+		d1.OutputTable == d2.OutputTable &&
+		d1.Backsteps == d2.Backsteps &&
+		d1.DetectionMethod == d2.DetectionMethod &&
+		d1.CronSchedule == d2.CronSchedule &&
+		d1.ConnectionString == d2.ConnectionString
 }
 
 func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
@@ -576,7 +586,7 @@ func httpIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpOutliers(w http.ResponseWriter, r *http.Request) {
-	fData, err := json.Marshal(OTL)
+	fData, err := json.Marshal(&OTL)
 	if err != nil {
 		errorLog.Println(err)
 		http.Error(w, "Internal error reading data", http.StatusNotFound)
