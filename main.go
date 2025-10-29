@@ -189,7 +189,7 @@ func (ot *Outliers) loadDetectors(filename string) error {
 			infoLog.Printf("Loading new detector '%s'", d.Title)
 		}
 		d.Id = ot.counter
-		d.OnOff = true
+		d.OnOff = false
 		ot.Detectors[ot.counter] = d
 		if d.CronSchedule != "" {
 			ot.scheduleDetectorUpdate(d)

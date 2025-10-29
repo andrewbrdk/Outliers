@@ -6,6 +6,7 @@ services:
   #     context: ./
   #     dockerfile: Dockerfile
   #   ports:
+  #     # host:container
   #     - "9090:9090"
   #   volumes:
   #     - ./outliers.toml:/app/outliers.toml
