@@ -113,7 +113,9 @@ class XDetector extends HTMLElement {
 	
 	unbindEvents() {
 		this.querySelectorAll('button').forEach(btn => btn.onclick = null);
-	}
+		//todo: unnecessary?
+		this.querySelectorAll('.u-over').forEach(p => {p.onmouseenter = null; p.onmouseleave = null;});
+	}	
 	
 	async HTML() {
 		let outliers_text = '';
@@ -201,10 +203,30 @@ class XDetector extends HTMLElement {
 					show: true,
 					live: true,
 					mount: (self, legendEl) => { legendDiv.appendChild(legendEl); }  
-				}
+				},
+				hooks: {
+					ready: [
+					(u) => {
+						const legendRows = legendDiv.querySelectorAll(".u-series");
+						legendRows[2].style.display = "none";
+						legendRows[3].style.display = "none";
+						legendRows[4].style.display = "none";
+						legendRows[1].querySelector(".u-marker").style.display = "none";
+					},
+					],
+				},
 			};
 			
 			new uPlot(opts, uplotData, plotDiv);
+			const legend = legendDiv.querySelector(".u-legend");
+			legend.style.display = "none";
+			const plotArea = plotDiv.querySelector(".u-over");
+			plotArea.onmouseenter = () => {
+				legend.style.display = "block";
+			};
+			plotArea.onmouseleave = () => {
+				legend.style.display = "none";
+			};
 		}
 	}
 
