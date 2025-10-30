@@ -255,6 +255,13 @@ func noConfChanges(d1 *Detector, d2 *Detector) bool {
 
 func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
 	var err error
+	exprDesc, _ := hcron.NewDescriptor(hcron.Use24HourTimeFormat(true))
+	d.HCron, err = exprDesc.ToDescription(d.CronSchedule, hcron.Locale_en)
+	if d.CronSchedule == "" {
+		d.HCron = ""
+	} else if err != nil {
+		d.HCron = d.CronSchedule
+	}
 	if !d.OnOff {
 		return
 	}
@@ -272,13 +279,6 @@ func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
 	}
 	d.NextScheduled = ot.cron.Entry(d.cronID).Next
 	infoLog.Printf("Scheduled outlier detection for %s with cron %s", d.Title, d.CronSchedule)
-	exprDesc, _ := hcron.NewDescriptor(hcron.Use24HourTimeFormat(true))
-	d.HCron, err = exprDesc.ToDescription(d.CronSchedule, hcron.Locale_en)
-	if d.CronSchedule == "" {
-		d.HCron = ""
-	} else if err != nil {
-		d.HCron = d.CronSchedule
-	}
 }
 
 func (d *Detector) detectOutliers() error {

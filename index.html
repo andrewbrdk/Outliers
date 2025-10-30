@@ -86,14 +86,16 @@ class XDetector extends HTMLElement {
 	async HTML() {
 		let outliers_text = '';
 		if (this.detector.TotalOutliers > 0) {
-			outliers_text = `${this.detector.TotalOutliers} outliers`;
+			outliers_text = `${this.detector.TotalOutliers} new outliers`;
 			if (this.detector.DimsWithOutliers > 1) {
 				outliers_text += ` in ${this.detector.DimsWithOutliers} dimensions`;
 			}
 		}
 		let schedule_text = escapeHTML(this.detector.HCron);
 		let upd_text = this.detector.LastUpdate && this.detector.LastUpdate != "0001-01-01T00:00:00Z" ? this.formatDateTime(new Date(this.detector.LastUpdate)) : '-' ;
-		
+		let on_off_btn_text = this.detector.OnOff ? 'Turn Off' : 'Turn On'
+		let on_off_btn_hidden = this.detector.CronSchedule.trim() === '' ? 'hidden' : '';
+
 		let html = `
 		<div class="detector-header">
 			<h3>${escapeHTML(this.detector.Title)}</h3>
@@ -101,7 +103,7 @@ class XDetector extends HTMLElement {
 			<div>
 				<span class="schedule">${schedule_text}</span>
 				<button class="check-outliers-btn">Update</button>
-				<button class="onoff-btn">${this.detector.OnOff ? 'Turn Off' : 'Turn On'}</button>
+				<button class="onoff-btn ${on_off_btn_hidden}">${on_off_btn_text}</button>
 				<br>
 				<span class="last-update">Last Update: ${upd_text}</span>
 			</div>

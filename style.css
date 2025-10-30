@@ -13,6 +13,10 @@ h1 a {
 	text-decoration: none;
 }
 
+.hidden {
+	display: none;
+}
+
 x-outliers {
 	display: block;
 	margin: 0 auto;
@@ -32,11 +36,12 @@ x-detector {
 	}
 	.detector-header h3 {
 		margin: 0;
-		flex: 10;
+		flex: 20;
 	}
 	.detector-header .outliers-text {
-		flex: 70;
+		flex: 60;
 		text-align: center;
+		font-style: italic;
 	}
 	.detector-header .update {
 		flex: 20;
