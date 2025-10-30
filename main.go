@@ -595,6 +595,7 @@ func httpServer() {
 	http.HandleFunc("/outliers/update", outliersUpdateHandler)
 	http.HandleFunc("/outliers/plot", outliersPlotHandler)
 	http.HandleFunc("/outliers/onoff", outliersOnOffHandler)
+	http.HandleFunc("/notifications", httpListNotifications)
 	log.Fatal(http.ListenAndServe(CONF.port, nil))
 }
 
@@ -766,6 +767,37 @@ func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
 		Status:   "ok",
 		Detector: d,
 	})
+}
+
+func httpListNotifications(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	data := make([]map[string]string, 0)
+
+	for title, n := range Notifiers {
+		switch nt := n.(type) {
+		case *SlackNotification:
+			data = append(data, map[string]string{
+				"title": nt.Title,
+				"type":  "Slack",
+				"url":   nt.WebhookURL,
+			})
+		case *EmailNotification:
+			data = append(data, map[string]string{
+				"title":    nt.Title,
+				"type":     "Email",
+				"smtp":     nt.SMTPServer,
+				"username": nt.Username,
+				//"to":       nt.To,
+			})
+		default:
+			data = append(data, map[string]string{
+				"title": title,
+				"type":  "Unknown",
+			})
+		}
+	}
+
+	json.NewEncoder(w).Encode(data)
 }
 
 type Notifier interface {

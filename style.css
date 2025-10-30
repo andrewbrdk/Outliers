@@ -96,3 +96,25 @@ x-detector {
 		}
 	}
 }
+
+.notifications-section {
+	margin-top: 40px;
+	padding: 20px;
+	border-top: 1px solid #ccc;
+}
+
+.notification-card {
+	border: 1px solid #ddd;
+	border-radius: 8px;
+	padding: 12px;
+	margin: 10px 0;
+	background: #fafafa;
+}
+
+.notification-card h3 {
+	margin: 0 0 6px 0;
+}
+
+.notification-card p {
+	margin: 2px 0;
+}
