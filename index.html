@@ -136,8 +136,6 @@ class XDetector extends HTMLElement {
 				<span class="schedule">${schedule_text}</span>
 				<button class="check-outliers-btn">Update</button>
 				<button class="onoff-btn ${on_off_btn_hidden}">${on_off_btn_text}</button>
-				<br>
-				<span class="last-update">Last Update: ${upd_text}</span>
 			</div>
 		</div>
 		<div class="plots"></div>
@@ -172,10 +170,24 @@ class XDetector extends HTMLElement {
 			plotWrapper.appendChild(dimLabel);
 			const plotDiv = document.createElement("div");
 			plotDiv.classList.add("uplot");
-			const legendDiv = document.createElement("div");
 			plotWrapper.appendChild(plotDiv);
-        	legendDiv.classList.add("uplot-legend");
-        	plotWrapper.appendChild(legendDiv);			
+			// const legendDiv = document.createElement("div");
+    		// legendDiv.classList.add("uplot-legend");
+    		// plotWrapper.appendChild(legendDiv);
+			const rightCol = document.createElement("div");
+			rightCol.classList.add("right-col");
+
+			const legendDiv = document.createElement("div");
+			legendDiv.classList.add("uplot-legend");
+			rightCol.appendChild(legendDiv);
+
+			const updateDiv = document.createElement("div");
+			updateDiv.classList.add("last-update");
+			let upd_text = this.detector.LastUpdate && this.detector.LastUpdate != "0001-01-01T00:00:00Z" ? this.formatDateTime(new Date(this.detector.LastUpdate)) : '-' ;
+			updateDiv.innerHTML = `<span class="last-update">Last Update: ${upd_text}</span>`;
+			rightCol.appendChild(updateDiv);
+
+			plotWrapper.appendChild(rightCol);
 			container.appendChild(plotWrapper);
 
 			const x = points.map(p => p.T);

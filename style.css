@@ -47,6 +47,13 @@ x-detector {
 		flex: 20;
 		text-align: right;
 	}
+	.detector-header .schedule {
+		font-style: italic;
+	}
+	.detector-header .last-update {
+		font-style: italic;
+		font-size: small;
+	}
 	.plots {
 		display: flex;
 		flex-direction: column;
@@ -57,7 +64,8 @@ x-detector {
 	.plot-wrapper {
 		display: grid;
 		grid-template-columns: 10% 70% 20%; /* Dim | Plot | List */
-		align-items: start;
+		/* align-items: start; */
+		align-items: stretch;
 		gap: 20px;
 		width: 100%;
 	}
@@ -72,7 +80,20 @@ x-detector {
 		height: 300px; 
 		flex: 1 1 auto;
 	}
+	.right-col {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 10px;
+		justify-content: space-between;
+		height: 100%;
+	}
+	.last-update {
+		font-style: italic;
+		font-size: small;
+	}
 	.uplot-legend {
+		flex: 1; 
 		padding-top: 1rem;
 	} 
 	.detector-info {
