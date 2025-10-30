@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"embed"
@@ -88,6 +89,10 @@ func main() {
 	initConfig()
 	infoLog = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 	errorLog = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
+	err := loadConnections("connections.toml")
+	if err != nil {
+		log.Fatalf("cannot load connections: %v", err)
+	}
 	OTL.cron = cron.New()
 	OTL.loadDetectors(CONF.confFile)
 	OTL.cron.Start()
@@ -291,6 +296,8 @@ func (d *Detector) detectOutliers() error {
 	if err != nil {
 		return err
 	}
+	var notifier Notifier = &SlackNotifier{}
+	notifier.Notify(d)
 	return nil
 }
 
@@ -743,4 +750,64 @@ func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
 		Status:   "ok",
 		Detector: d,
 	})
+}
+
+type Connections struct {
+	Slack struct {
+		WebhookURL string `toml:"webhook_url"`
+	} `toml:"slack"`
+}
+
+var CONN Connections
+
+func loadConnections(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read connections file: %w", err)
+	}
+	if err := toml.Unmarshal(data, &CONN); err != nil {
+		return fmt.Errorf("failed to parse connections file: %w", err)
+	}
+	infoLog.Printf("Loaded connections from %s", filename)
+	return nil
+}
+
+type Notifier interface {
+	Notify(d *Detector) error
+}
+
+type SlackNotifier struct {
+	WebhookURL string
+}
+
+func (s *SlackNotifier) Notify(d *Detector) error {
+	if d.TotalOutliers == 0 {
+		return nil
+	}
+	msg := fmt.Sprintf("Detector '%s' found %d outliers.", d.Title, d.TotalOutliers)
+	return NotifySlack(msg)
+}
+
+func NotifySlack(message string) error {
+	webhook := CONN.Slack.WebhookURL
+	if webhook == "" {
+		errorLog.Println("Slack webhook URL not configured, skipping Slack notification")
+		return nil
+	}
+
+	body, err := json.Marshal(map[string]string{"text": message})
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.Post(webhook, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("Slack returned %s", resp.Status)
+	}
+	return nil
 }
