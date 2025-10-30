@@ -171,23 +171,9 @@ class XDetector extends HTMLElement {
 			const plotDiv = document.createElement("div");
 			plotDiv.classList.add("uplot");
 			plotWrapper.appendChild(plotDiv);
-			// const legendDiv = document.createElement("div");
-    		// legendDiv.classList.add("uplot-legend");
-    		// plotWrapper.appendChild(legendDiv);
-			const rightCol = document.createElement("div");
-			rightCol.classList.add("right-col");
-
 			const legendDiv = document.createElement("div");
-			legendDiv.classList.add("uplot-legend");
-			rightCol.appendChild(legendDiv);
-
-			const updateDiv = document.createElement("div");
-			updateDiv.classList.add("last-update");
-			let upd_text = this.detector.LastUpdate && this.detector.LastUpdate != "0001-01-01T00:00:00Z" ? this.formatDateTime(new Date(this.detector.LastUpdate)) : '-' ;
-			updateDiv.innerHTML = `<span class="last-update">Last Update: ${upd_text}</span>`;
-			rightCol.appendChild(updateDiv);
-
-			plotWrapper.appendChild(rightCol);
+    		legendDiv.classList.add("uplot-legend");
+    		plotWrapper.appendChild(legendDiv);
 			container.appendChild(plotWrapper);
 
 			const x = points.map(p => p.T);
