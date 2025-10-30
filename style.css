@@ -81,7 +81,7 @@ x-detector {
 	}
 	.uplot-legend {
 		padding-top: 1rem;
-	} 
+	}
 	.detector-info {
 		display: grid;
 		grid-template-columns: max-content 1fr;
@@ -101,6 +101,9 @@ x-detector {
 		p span.value {
 			text-align: left;
 		}
+	}
+	.detector-info.hidden {
+		display: none;
 	}
 }
 
