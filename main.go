@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/smtp"
 	"os"
 	"regexp"
 	"sort"
@@ -91,7 +92,7 @@ func main() {
 	errorLog = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 	err := loadConnections("connections.toml")
 	if err != nil {
-		log.Fatalf("cannot load connections: %v", err)
+		errorLog.Println("Error loading connections:", err)
 	}
 	OTL.cron = cron.New()
 	OTL.loadDetectors(CONF.confFile)
@@ -296,8 +297,7 @@ func (d *Detector) detectOutliers() error {
 	if err != nil {
 		return err
 	}
-	var notifier Notifier = &SlackNotifier{}
-	notifier.Notify(d)
+	d.notify()
 	return nil
 }
 
@@ -567,6 +567,22 @@ func (d *Detector) writeResults() error {
 	return nil
 }
 
+func (d *Detector) notify() error {
+	if d.TotalOutliers == 0 {
+		return nil
+	}
+	msg := fmt.Sprintf("%s Detector '%s' found %d outliers.", d.LastUpdate.Format("2006-01-02 15:04"), d.Title, d.TotalOutliers)
+	for _, notifier := range Notifiers {
+		err := notifier.Notify(msg)
+		if err != nil {
+			errorLog.Printf("Error sending notification for '%s': %v", d.Title, err)
+		} else {
+			infoLog.Printf("Notification sent for detector '%s'", d.Title)
+		}
+	}
+	return nil
+}
+
 type Response struct {
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
@@ -752,62 +768,96 @@ func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type Connections struct {
-	Slack struct {
-		WebhookURL string `toml:"webhook_url"`
-	} `toml:"slack"`
+type Notifier interface {
+	Notify(message string) error
 }
 
-var CONN Connections
+type SlackNotification struct {
+	Title      string
+	WebhookURL string
+}
+
+type EmailNotification struct {
+	Title      string
+	SMTPServer string
+	Username   string
+	Password   string
+	From       string
+	To         []string
+}
+
+type NotificationConfig struct {
+	Title      string   `toml:"title"`
+	Type       string   `toml:"type"`
+	WebhookURL string   `toml:"webhook_url"`
+	SMTPServer string   `toml:"smtp_server"`
+	Username   string   `toml:"username"`
+	Password   string   `toml:"password"`
+	From       string   `toml:"from"`
+	To         []string `toml:"to"`
+}
+
+var Notifiers = make(map[string]Notifier)
 
 func loadConnections(filename string) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return fmt.Errorf("failed to read connections file: %w", err)
+		return fmt.Errorf("error reading file %s: %v", filename, err)
 	}
-	if err := toml.Unmarshal(data, &CONN); err != nil {
-		return fmt.Errorf("failed to parse connections file: %w", err)
+	var confs struct {
+		Notifications []NotificationConfig `toml:"notifications"`
 	}
-	infoLog.Printf("Loaded connections from %s", filename)
+	if err := toml.Unmarshal(data, &confs); err != nil {
+		return fmt.Errorf("error parsing TOML %s: %v", filename, err)
+	}
+	for _, n := range confs.Notifications {
+		//todo: warning on overwrite
+		switch n.Type {
+		case "slack":
+			Notifiers[n.Title] = &SlackNotification{
+				Title:      n.Title,
+				WebhookURL: n.WebhookURL,
+			}
+		case "email":
+			Notifiers[n.Title] = &EmailNotification{
+				Title:      n.Title,
+				SMTPServer: n.SMTPServer,
+				Username:   n.Username,
+				Password:   n.Password,
+				From:       n.From,
+				To:         n.To,
+			}
+		default:
+			fmt.Printf("Unknown notifier type '%s' for '%s'\n", n.Type, n.Title)
+		}
+	}
+
+	fmt.Printf("Loaded %d notifiers\n", len(Notifiers))
 	return nil
 }
 
-type Notifier interface {
-	Notify(d *Detector) error
-}
-
-type SlackNotifier struct {
-	WebhookURL string
-}
-
-func (s *SlackNotifier) Notify(d *Detector) error {
-	if d.TotalOutliers == 0 {
-		return nil
+func (s *SlackNotification) Notify(message string) error {
+	if s.WebhookURL == "" {
+		return fmt.Errorf("no Slack webhook configured for %s", s.Title)
 	}
-	msg := fmt.Sprintf("Detector '%s' found %d outliers.", d.Title, d.TotalOutliers)
-	return NotifySlack(msg)
-}
-
-func NotifySlack(message string) error {
-	webhook := CONN.Slack.WebhookURL
-	if webhook == "" {
-		errorLog.Println("Slack webhook URL not configured, skipping Slack notification")
-		return nil
-	}
-
-	body, err := json.Marshal(map[string]string{"text": message})
-	if err != nil {
-		return err
-	}
-
-	resp, err := http.Post(webhook, "application/json", bytes.NewBuffer(body))
+	payload := map[string]string{"text": message}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(s.WebhookURL, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("Slack returned %s", resp.Status)
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("slack returned status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func (e *EmailNotification) Notify(message string) error {
+	if e.SMTPServer == "" {
+		return fmt.Errorf("no SMTP server configured for %s", e.Title)
+	}
+
+	auth := smtp.PlainAuth("", e.Username, e.Password, e.SMTPServer)
+	return smtp.SendMail(e.SMTPServer, auth, e.From, e.To, []byte(message))
 }
