@@ -35,6 +35,9 @@ var errorLog *log.Logger
 var OTL Outliers
 var CONF Config
 
+var Connections = make(map[string]*Connection)
+var Notifiers = make(map[string]Notifier)
+
 type Outliers struct {
 	Detectors map[int]*Detector
 	counter   int
@@ -50,7 +53,7 @@ type Config struct {
 type Detector struct {
 	Title            string                   `toml:"title"`
 	Id               int                      `toml:"-"`
-	ConnectionString string                   `toml:"connection"`
+	ConnectionName   string                   `toml:"connection"`
 	DataSQL          string                   `toml:"data_sql"`
 	OutputTable      string                   `toml:"output"`
 	Backsteps        int                      `toml:"backsteps"`
@@ -90,9 +93,14 @@ func main() {
 	initConfig()
 	infoLog = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 	errorLog = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
-	err := loadConnections("connections.toml")
+	//todo: parse all config at once
+	err := loadConnections(CONF.confFile)
 	if err != nil {
 		errorLog.Println("Error loading connections:", err)
+	}
+	err = loadNotifiers(CONF.confFile)
+	if err != nil {
+		errorLog.Println("Error loading notifiers:", err)
 	}
 	OTL.cron = cron.New()
 	OTL.loadDetectors(CONF.confFile)
@@ -220,10 +228,11 @@ func (d *Detector) validateConf() error {
 		errorLog.Printf("Config missing title")
 		return errors.New("Invalid Config: missing title")
 	}
-	if d.ConnectionString == "" {
-		errorLog.Printf("Config '%s' missing connection string", d.Title)
-		return errors.New("Invalid Config: missing connection string")
+	if d.ConnectionName == "" {
+		errorLog.Printf("Config '%s' missing connection name", d.Title)
+		return errors.New("Invalid Config: missing connection name")
 	}
+	//todo: check connection exists
 	if d.DataSQL == "" {
 		errorLog.Printf("Config '%s' missing data_sql", d.Title)
 		return errors.New("Invalid Config: missing data_sql")
@@ -250,7 +259,7 @@ func noConfChanges(d1 *Detector, d2 *Detector) bool {
 		d1.Backsteps == d2.Backsteps &&
 		d1.DetectionMethod == d2.DetectionMethod &&
 		d1.CronSchedule == d2.CronSchedule &&
-		d1.ConnectionString == d2.ConnectionString
+		d1.ConnectionName == d2.ConnectionName
 }
 
 func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
@@ -302,12 +311,10 @@ func (d *Detector) detectOutliers() error {
 }
 
 func (d *Detector) readTimeSeries() error {
-	db, err := sql.Open("pgx", d.ConnectionString)
+	db, err := GetDB(d.ConnectionName)
 	if err != nil {
-		errorLog.Printf("Error connecting to Postgres: %v", err)
-		return err
+		return fmt.Errorf("detector %s: %v", d.Title, err)
 	}
-	defer db.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3600*time.Second)
 	defer cancel()
@@ -500,12 +507,12 @@ func (d *Detector) markOutliers() error {
 
 func (d *Detector) writeResults() error {
 	destTable := d.OutputTable
-	ctx := context.Background()
-	db, err := sql.Open("pgx", d.ConnectionString)
+
+	db, err := GetDB(d.ConnectionName)
 	if err != nil {
-		errorLog.Printf("Error connecting to Postgres: %v", err)
+		errorLog.Printf("Error getting DB connection: %v", err)
+		return fmt.Errorf("detector %s: failed to get connection: %v", d.Title, err)
 	}
-	defer db.Close()
 
 	createTableQuery := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -523,6 +530,10 @@ func (d *Detector) writeResults() error {
 		CREATE INDEX IF NOT EXISTS idx_%[1]s_t ON %[1]s (t);
 		CREATE INDEX IF NOT EXISTS idx_%[1]s_detector ON %[1]s (detector);
 		CREATE INDEX IF NOT EXISTS idx_%[1]s_dim ON %[1]s (dim);`, destTable)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+
 	if _, err := db.ExecContext(ctx, createTableQuery); err != nil {
 		errorLog.Printf("Error creating table %s: %v", destTable, err)
 		return err
@@ -673,13 +684,12 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db, err := sql.Open("pgx", d.ConnectionString)
+	db, err := GetDB(d.ConnectionName)
 	if err != nil {
 		errorLog.Println(err)
 		http.Error(w, "db connection failed", http.StatusInternalServerError)
 		return
 	}
-	defer db.Close()
 
 	selectOutliersQuery := fmt.Sprintf(`
 		select 
@@ -829,9 +839,7 @@ type NotificationConfig struct {
 	To         []string `toml:"to"`
 }
 
-var Notifiers = make(map[string]Notifier)
-
-func loadConnections(filename string) error {
+func loadNotifiers(filename string) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("error reading file %s: %v", filename, err)
@@ -842,6 +850,7 @@ func loadConnections(filename string) error {
 	if err := toml.Unmarshal(data, &confs); err != nil {
 		return fmt.Errorf("error parsing TOML %s: %v", filename, err)
 	}
+	Notifiers = make(map[string]Notifier)
 	for _, n := range confs.Notifications {
 		//todo: warning on overwrite
 		switch n.Type {
@@ -892,4 +901,117 @@ func (e *EmailNotification) Notify(message string) error {
 
 	auth := smtp.PlainAuth("", e.Username, e.Password, e.SMTPServer)
 	return smtp.SendMail(e.SMTPServer, auth, e.From, e.To, []byte(message))
+}
+
+type Connection struct {
+	Title           string  `toml:"title"`
+	Type            string  `toml:"type"`
+	ConnStr         string  `toml:"connection"`
+	MaxOpenConns    int     `toml:"max_open_conns"`
+	MaxIdleConns    int     `toml:"max_idle_conns"`
+	ConnMaxLifetime string  `toml:"conn_max_lifetime"`
+	DB              *sql.DB `toml:"-"`
+}
+
+type ConnectionConfig struct {
+	Title           string `toml:"title"`
+	Type            string `toml:"type"`
+	ConnStr         string `toml:"connection"`
+	MaxOpenConns    int    `toml:"max_open_conns"`
+	MaxIdleConns    int    `toml:"max_idle_conns"`
+	ConnMaxLifetime string `toml:"conn_max_lifetime"`
+}
+
+func loadConnections(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("error reading file %s: %v", filename, err)
+	}
+
+	var confs struct {
+		Connections []ConnectionConfig `toml:"connections"`
+	}
+	if err := toml.Unmarshal(data, &confs); err != nil {
+		return fmt.Errorf("error parsing TOML %s: %v", filename, err)
+	}
+
+	_ = CloseAllConnections()
+	Connections = make(map[string]*Connection)
+
+	for _, c := range confs.Connections {
+		if c.Title == "" || c.Type == "" || c.ConnStr == "" {
+			errorLog.Printf("Skipping invalid connection entry (missing title/type/connection)")
+			continue
+		}
+		if c.Type != "postgres" {
+			errorLog.Printf("Skipping connection '%s': unsupported type '%s'", c.Title, c.Type)
+			continue
+		}
+		driver := "pgx"
+		db, err := sql.Open(driver, c.ConnStr)
+		if err != nil {
+			errorLog.Printf("Failed to open DB for %s: %v", c.Title, err)
+			continue
+		}
+		if c.MaxOpenConns > 0 {
+			db.SetMaxOpenConns(c.MaxOpenConns)
+		}
+		if c.MaxIdleConns > 0 {
+			db.SetMaxIdleConns(c.MaxIdleConns)
+		}
+		if c.ConnMaxLifetime != "" {
+			if d, err := time.ParseDuration(c.ConnMaxLifetime); err == nil {
+				db.SetConnMaxLifetime(d)
+			} else {
+				errorLog.Printf("Invalid conn_max_lifetime for %s: %v (using default)", c.Title, err)
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err = db.PingContext(ctx)
+		cancel()
+		if err != nil {
+			errorLog.Printf("DB ping failed for %s: %v", c.Title, err)
+			db.Close()
+			continue
+		}
+
+		con := &Connection{
+			Title:           c.Title,
+			Type:            c.Type,
+			ConnStr:         c.ConnStr,
+			MaxOpenConns:    c.MaxOpenConns,
+			MaxIdleConns:    c.MaxIdleConns,
+			ConnMaxLifetime: c.ConnMaxLifetime,
+			DB:              db,
+		}
+
+		Connections[c.Title] = con
+		infoLog.Printf("Opened connection '%s' (type=%s)", c.Title, c.Type)
+	}
+
+	infoLog.Printf("Loaded %d connections from %s", len(Connections), filename)
+	return nil
+}
+
+func CloseAllConnections() error {
+	var firstErr error
+	for k, c := range Connections {
+		if c != nil && c.DB != nil {
+			if err := c.DB.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+			infoLog.Printf("Closed connection '%s'", k)
+		}
+		delete(Connections, k)
+	}
+	return firstErr
+}
+
+func GetDB(name string) (*sql.DB, error) {
+	conn, ok := Connections[name]
+	if ok && conn != nil && conn.DB != nil {
+		return conn.DB, nil
+	}
+	return nil, fmt.Errorf("connection %q not found or not initialized", name)
 }
