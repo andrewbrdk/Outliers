@@ -35,14 +35,14 @@ var errorLog *log.Logger
 var OTL Outliers
 var CONF Config
 
-var Connections = make(map[string]*Connection)
-var Notifiers = make(map[string]Notifier)
-
 type Outliers struct {
-	Detectors map[int]*Detector
-	counter   int
-	cron      *cron.Cron
-	mu        sync.RWMutex
+	Connections map[string]Connection
+	Notifiers   map[string]Notifier
+	Detectors   map[int]*Detector
+	counter     int
+	cron        *cron.Cron
+	mu          sync.RWMutex
+	parsedConf  ParsedConfig
 }
 
 type Config struct {
@@ -89,21 +89,77 @@ type MarkedPoint struct {
 	UpperBound float64   `json:"UpperBound"`
 }
 
+type Connection interface {
+	GetDB() *sql.DB
+	Close() error
+}
+
+type ConnectionConfig struct {
+	Title           string `toml:"title"`
+	Type            string `toml:"type"`
+	ConnStr         string `toml:"connection"`
+	MaxOpenConns    int    `toml:"max_open_conns"`
+	MaxIdleConns    int    `toml:"max_idle_conns"`
+	ConnMaxLifetime string `toml:"conn_max_lifetime"`
+}
+
+type PostgresConnection struct {
+	Title           string
+	ConnStr         string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime string
+	DB              *sql.DB
+}
+
+type Notifier interface {
+	Notify(message string) error
+}
+
+type NotificationConfig struct {
+	Title      string   `toml:"title"`
+	Type       string   `toml:"type"`
+	WebhookURL string   `toml:"webhook_url"`
+	SMTPServer string   `toml:"smtp_server"`
+	Username   string   `toml:"username"`
+	Password   string   `toml:"password"`
+	From       string   `toml:"from"`
+	To         []string `toml:"to"`
+}
+
+type SlackNotification struct {
+	Title      string
+	WebhookURL string
+}
+
+type EmailNotification struct {
+	Title      string
+	SMTPServer string
+	Username   string
+	Password   string
+	From       string
+	To         []string
+}
+
+type ParsedConfig struct {
+	//todo: make uniform
+	Connections   []ConnectionConfig   `toml:"connections"`
+	Notifications []NotificationConfig `toml:"notifications"`
+	Detectors     []*Detector          `toml:"detectors"`
+}
+
 func main() {
 	initConfig()
 	infoLog = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 	errorLog = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
-	//todo: parse all config at once
-	err := loadConnections(CONF.confFile)
+	err := OTL.loadConfFile(CONF.confFile)
 	if err != nil {
-		errorLog.Println("Error loading connections:", err)
+		errorLog.Println("Error loading config:", err)
 	}
-	err = loadNotifiers(CONF.confFile)
-	if err != nil {
-		errorLog.Println("Error loading notifiers:", err)
-	}
+	OTL.initConnections()
+	OTL.initNotifiers()
 	OTL.cron = cron.New()
-	OTL.loadDetectors(CONF.confFile)
+	OTL.initDetectors()
 	OTL.cron.Start()
 	go startFSWatcher()
 	httpServer()
@@ -142,7 +198,13 @@ func startFSWatcher() {
 				//todo: prevent multiple triggers
 				go func() {
 					time.Sleep(300 * time.Millisecond) //prevents reading incomplete file
-					OTL.loadDetectors(CONF.confFile)
+					err := OTL.loadConfFile(CONF.confFile)
+					if err != nil {
+						errorLog.Println("Error loading config:", err)
+					}
+					OTL.initConnections()
+					OTL.initNotifiers()
+					OTL.initDetectors()
 				}()
 			}
 		case err, ok := <-watcher.Errors:
@@ -154,24 +216,26 @@ func startFSWatcher() {
 	}
 }
 
-func (ot *Outliers) loadDetectors(filename string) error {
-	ot.mu.Lock()
-	defer ot.mu.Unlock()
+func (ot *Outliers) loadConfFile(filename string) error {
 	f, err := os.ReadFile(filename)
 	if err != nil {
 		errorLog.Printf("Error reading file %s: %v", filename, err)
 		return err
 	}
-	type OutliersConf struct {
-		Parsed []*Detector `toml:"detectors"`
-	}
-	var tmp OutliersConf
-	if err := toml.Unmarshal(f, &tmp); err != nil {
+	if err := toml.Unmarshal(f, &ot.parsedConf); err != nil {
 		errorLog.Printf("Error parsing file %s: %v", filename, err)
 		return err
 	}
+	return nil
+}
+
+func (ot *Outliers) initDetectors() error {
+	ot.mu.Lock()
+	defer ot.mu.Unlock()
+	var err error
+
 	confDetectors := make(map[string]*Detector)
-	for _, d := range tmp.Parsed {
+	for _, d := range ot.parsedConf.Detectors {
 		err = d.validateConf()
 		if err != nil {
 			errorLog.Printf("Skipping invalid config in %s: %v", d.Title, err)
@@ -219,7 +283,7 @@ func (ot *Outliers) loadDetectors(filename string) error {
 			infoLog.Printf("Removed detector '%s' (id=%d, not in config)", existing.Title, id)
 		}
 	}
-	infoLog.Printf("Configured %d detectors from %s", len(ot.Detectors), filename)
+	infoLog.Printf("Configured %d detectors", len(ot.Detectors))
 	return nil
 }
 
@@ -311,7 +375,7 @@ func (d *Detector) detectOutliers() error {
 }
 
 func (d *Detector) readTimeSeries() error {
-	db, err := GetDB(d.ConnectionName)
+	db, err := OTL.GetDB(d.ConnectionName)
 	if err != nil {
 		return fmt.Errorf("detector %s: %v", d.Title, err)
 	}
@@ -319,13 +383,13 @@ func (d *Detector) readTimeSeries() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3600*time.Second)
 	defer cancel()
 
-	_, err = db.ExecContext(ctx, "SET default_transaction_read_only = on;")
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		errorLog.Printf("Failed to set read-only: %v", err)
-		return err
+		return fmt.Errorf("detector %s: begin readonly tx failed: %v", d.Title, err)
 	}
+	defer tx.Rollback()
 
-	rows, err := db.QueryContext(ctx, d.DataSQL)
+	rows, err := tx.QueryContext(ctx, d.DataSQL)
 	if err != nil {
 		errorLog.Printf("Error reading from table: %v", err)
 		return err
@@ -366,6 +430,12 @@ func (d *Detector) readTimeSeries() error {
 			return p[i].TUnix < p[j].TUnix
 		})
 	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("detector %s: commit failed: %v", d.Title, err)
+	}
+
 	return nil
 }
 
@@ -508,7 +578,7 @@ func (d *Detector) markOutliers() error {
 func (d *Detector) writeResults() error {
 	destTable := d.OutputTable
 
-	db, err := GetDB(d.ConnectionName)
+	db, err := OTL.GetDB(d.ConnectionName)
 	if err != nil {
 		errorLog.Printf("Error getting DB connection: %v", err)
 		return fmt.Errorf("detector %s: failed to get connection: %v", d.Title, err)
@@ -583,7 +653,7 @@ func (d *Detector) notify() error {
 		return nil
 	}
 	msg := fmt.Sprintf("%s Detector '%s' found %d outliers.", d.LastUpdate.Format("2006-01-02 15:04"), d.Title, d.TotalOutliers)
-	for _, notifier := range Notifiers {
+	for _, notifier := range OTL.Notifiers {
 		err := notifier.Notify(msg)
 		if err != nil {
 			errorLog.Printf("Error sending notification for '%s': %v", d.Title, err)
@@ -684,7 +754,7 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db, err := GetDB(d.ConnectionName)
+	db, err := OTL.GetDB(d.ConnectionName)
 	if err != nil {
 		errorLog.Println(err)
 		http.Error(w, "db connection failed", http.StatusInternalServerError)
@@ -783,7 +853,7 @@ func httpListNotifications(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	data := make([]map[string]string, 0)
 
-	for title, n := range Notifiers {
+	for title, n := range OTL.Notifiers {
 		switch nt := n.(type) {
 		case *SlackNotification:
 			data = append(data, map[string]string{
@@ -810,57 +880,19 @@ func httpListNotifications(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(data)
 }
 
-type Notifier interface {
-	Notify(message string) error
-}
+func (ot *Outliers) initNotifiers() error {
+	ot.Notifiers = make(map[string]Notifier)
 
-type SlackNotification struct {
-	Title      string
-	WebhookURL string
-}
-
-type EmailNotification struct {
-	Title      string
-	SMTPServer string
-	Username   string
-	Password   string
-	From       string
-	To         []string
-}
-
-type NotificationConfig struct {
-	Title      string   `toml:"title"`
-	Type       string   `toml:"type"`
-	WebhookURL string   `toml:"webhook_url"`
-	SMTPServer string   `toml:"smtp_server"`
-	Username   string   `toml:"username"`
-	Password   string   `toml:"password"`
-	From       string   `toml:"from"`
-	To         []string `toml:"to"`
-}
-
-func loadNotifiers(filename string) error {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return fmt.Errorf("error reading file %s: %v", filename, err)
-	}
-	var confs struct {
-		Notifications []NotificationConfig `toml:"notifications"`
-	}
-	if err := toml.Unmarshal(data, &confs); err != nil {
-		return fmt.Errorf("error parsing TOML %s: %v", filename, err)
-	}
-	Notifiers = make(map[string]Notifier)
-	for _, n := range confs.Notifications {
+	for _, n := range ot.parsedConf.Notifications {
 		//todo: warning on overwrite
 		switch n.Type {
 		case "slack":
-			Notifiers[n.Title] = &SlackNotification{
+			ot.Notifiers[n.Title] = &SlackNotification{
 				Title:      n.Title,
 				WebhookURL: n.WebhookURL,
 			}
 		case "email":
-			Notifiers[n.Title] = &EmailNotification{
+			ot.Notifiers[n.Title] = &EmailNotification{
 				Title:      n.Title,
 				SMTPServer: n.SMTPServer,
 				Username:   n.Username,
@@ -873,7 +905,7 @@ func loadNotifiers(filename string) error {
 		}
 	}
 
-	fmt.Printf("Loaded %d notifiers\n", len(Notifiers))
+	fmt.Printf("Loaded %d notifiers\n", len(ot.Notifiers))
 	return nil
 }
 
@@ -903,42 +935,11 @@ func (e *EmailNotification) Notify(message string) error {
 	return smtp.SendMail(e.SMTPServer, auth, e.From, e.To, []byte(message))
 }
 
-type Connection struct {
-	Title           string  `toml:"title"`
-	Type            string  `toml:"type"`
-	ConnStr         string  `toml:"connection"`
-	MaxOpenConns    int     `toml:"max_open_conns"`
-	MaxIdleConns    int     `toml:"max_idle_conns"`
-	ConnMaxLifetime string  `toml:"conn_max_lifetime"`
-	DB              *sql.DB `toml:"-"`
-}
+func (ot *Outliers) initConnections() error {
+	ot.CloseAllConnections()
+	ot.Connections = make(map[string]Connection)
 
-type ConnectionConfig struct {
-	Title           string `toml:"title"`
-	Type            string `toml:"type"`
-	ConnStr         string `toml:"connection"`
-	MaxOpenConns    int    `toml:"max_open_conns"`
-	MaxIdleConns    int    `toml:"max_idle_conns"`
-	ConnMaxLifetime string `toml:"conn_max_lifetime"`
-}
-
-func loadConnections(filename string) error {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return fmt.Errorf("error reading file %s: %v", filename, err)
-	}
-
-	var confs struct {
-		Connections []ConnectionConfig `toml:"connections"`
-	}
-	if err := toml.Unmarshal(data, &confs); err != nil {
-		return fmt.Errorf("error parsing TOML %s: %v", filename, err)
-	}
-
-	_ = CloseAllConnections()
-	Connections = make(map[string]*Connection)
-
-	for _, c := range confs.Connections {
+	for _, c := range ot.parsedConf.Connections {
 		if c.Title == "" || c.Type == "" || c.ConnStr == "" {
 			errorLog.Printf("Skipping invalid connection entry (missing title/type/connection)")
 			continue
@@ -976,9 +977,8 @@ func loadConnections(filename string) error {
 			continue
 		}
 
-		con := &Connection{
+		con := PostgresConnection{
 			Title:           c.Title,
-			Type:            c.Type,
 			ConnStr:         c.ConnStr,
 			MaxOpenConns:    c.MaxOpenConns,
 			MaxIdleConns:    c.MaxIdleConns,
@@ -986,32 +986,43 @@ func loadConnections(filename string) error {
 			DB:              db,
 		}
 
-		Connections[c.Title] = con
+		ot.Connections[c.Title] = con
 		infoLog.Printf("Opened connection '%s' (type=%s)", c.Title, c.Type)
 	}
 
-	infoLog.Printf("Loaded %d connections from %s", len(Connections), filename)
+	infoLog.Printf("Loaded %d connections", len(ot.Connections))
 	return nil
 }
 
-func CloseAllConnections() error {
+func (ot *Outliers) CloseAllConnections() error {
 	var firstErr error
-	for k, c := range Connections {
-		if c != nil && c.DB != nil {
-			if err := c.DB.Close(); err != nil && firstErr == nil {
+	for k, c := range ot.Connections {
+		if c != nil && c.Close() != nil {
+			if err := c.Close(); err != nil && firstErr == nil {
 				firstErr = err
 			}
 			infoLog.Printf("Closed connection '%s'", k)
 		}
-		delete(Connections, k)
+		delete(ot.Connections, k)
 	}
 	return firstErr
 }
 
-func GetDB(name string) (*sql.DB, error) {
-	conn, ok := Connections[name]
-	if ok && conn != nil && conn.DB != nil {
-		return conn.DB, nil
+func (ot *Outliers) GetDB(connName string) (*sql.DB, error) {
+	con, ok := ot.Connections[connName]
+	if !ok {
+		return nil, fmt.Errorf("connection '%s' not found", connName)
 	}
-	return nil, fmt.Errorf("connection %q not found or not initialized", name)
+	return con.GetDB(), nil
+}
+
+func (c PostgresConnection) GetDB() *sql.DB {
+	return c.DB
+}
+
+func (c PostgresConnection) Close() error {
+	if c.DB != nil {
+		return c.DB.Close()
+	}
+	return nil
 }
