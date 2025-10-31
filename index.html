@@ -205,6 +205,10 @@ class XDetector extends HTMLElement {
 					{ label: "Lower Bound", stroke: "black", dash: [20, 5], width: 2, points: {show: false}, band: true },
 					{ label: "Upper Bound", stroke: "black", dash: [20, 5], width: 2, points: {show: false}, band: true, legend: {show: false} },
 				],
+				axes: [
+					{grid: { show: false }, ticks: { show: false }},
+					{grid: { show: false }, ticks: { show: false }},
+				],
 				cursor: {drag: {x: true, y: false}, lock: true},
 				legend: {
 					show: true,
