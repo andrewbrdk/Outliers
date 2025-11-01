@@ -856,26 +856,26 @@ func httpListNotifications(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	data := make([]map[string]string, 0)
 
-	for title, n := range OTL.Notifiers {
-		switch nt := n.(type) {
-		case *SlackNotification:
+	for _, n := range OTL.parsedConf.Notifications {
+		_, ok := OTL.Notifiers[n.Title]
+		if !ok {
+			continue
+		}
+		switch n.Type {
+		case "slack":
 			data = append(data, map[string]string{
-				"title": nt.Title,
+				"title": n.Title,
 				"type":  "Slack",
-				"url":   nt.WebhookURL,
+				"url":   n.WebhookURL,
 			})
-		case *EmailNotification:
+		case "email":
 			data = append(data, map[string]string{
-				"title":             nt.Title,
+				"title":             n.Title,
 				"type":              "Email",
-				"smtp":              nt.SMTPServerWithPort,
-				"username":          nt.Username,
-				"common_recipients": strings.Join(nt.CommonRecipients, ", "),
-			})
-		default:
-			data = append(data, map[string]string{
-				"title": title,
-				"type":  "Unknown",
+				"smtp":              n.SMTPServerWithPort,
+				"username":          n.Username,
+				"from":              n.From,
+				"common_recipients": strings.Join(n.CommonRecipients, ", "),
 			})
 		}
 	}
