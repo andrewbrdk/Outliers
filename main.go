@@ -124,7 +124,7 @@ type NotificationConfig struct {
 	Username   string   `toml:"username"`
 	Password   string   `toml:"password"`
 	From       string   `toml:"from"`
-	To         []string `toml:"to"`
+	DefaultTo  []string `toml:"default_to"`
 }
 
 type SlackNotification struct {
@@ -138,7 +138,7 @@ type EmailNotification struct {
 	Username   string
 	Password   string
 	From       string
-	To         []string
+	DefaultTo  []string
 }
 
 type ParsedConfig struct {
@@ -889,16 +889,16 @@ func (ot *Outliers) initNotifiers() error {
 		case "slack":
 			ot.Notifiers[n.Title] = &SlackNotification{
 				Title:      n.Title,
-				WebhookURL: n.WebhookURL,
+				WebhookURL: resolveEnvVar(n.WebhookURL),
 			}
 		case "email":
 			ot.Notifiers[n.Title] = &EmailNotification{
 				Title:      n.Title,
-				SMTPServer: n.SMTPServer,
-				Username:   n.Username,
-				Password:   n.Password,
-				From:       n.From,
-				To:         n.To,
+				SMTPServer: resolveEnvVar(n.SMTPServer),
+				Username:   resolveEnvVar(n.Username),
+				Password:   resolveEnvVar(n.Password),
+				From:       resolveEnvVar(n.From),
+				DefaultTo:  n.DefaultTo,
 			}
 		default:
 			fmt.Printf("Unknown notifier type '%s' for '%s'\n", n.Type, n.Title)
@@ -932,7 +932,7 @@ func (e *EmailNotification) Notify(message string) error {
 	}
 
 	auth := smtp.PlainAuth("", e.Username, e.Password, e.SMTPServer)
-	return smtp.SendMail(e.SMTPServer, auth, e.From, e.To, []byte(message))
+	return smtp.SendMail(e.SMTPServer, auth, e.From, e.DefaultTo, []byte(message))
 }
 
 func (ot *Outliers) initConnections() error {
@@ -979,7 +979,7 @@ func (ot *Outliers) initConnections() error {
 
 		con := PostgresConnection{
 			Title:           c.Title,
-			ConnStr:         c.ConnStr,
+			ConnStr:         resolveEnvVar(c.ConnStr),
 			MaxOpenConns:    c.MaxOpenConns,
 			MaxIdleConns:    c.MaxIdleConns,
 			ConnMaxLifetime: c.ConnMaxLifetime,
@@ -1025,4 +1025,14 @@ func (c PostgresConnection) Close() error {
 		return c.DB.Close()
 	}
 	return nil
+}
+
+func resolveEnvVar(s string) string {
+	if strings.HasPrefix(s, "$") {
+		val := os.Getenv(strings.TrimPrefix(s, "$"))
+		if val != "" {
+			return val
+		}
+	}
+	return s
 }

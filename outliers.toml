@@ -1,18 +1,29 @@
+[[connections]]
+title = "main_pg"
+type = "postgres"
+#connection = "postgres://pguser:password123@postgres:5432/outliers"
+connection =  "postgres://pguser:password123@localhost:5432/outliers"
+max_open_conns = 10
+max_idle_conns = 2
+conn_max_lifetime = "30m"
+
+[[notifications]]
+title = "Slack Repeater"
+type = "slack"
+webhook_url = "$SLACK_WEBHOOK"
+
 [[detectors]]
 title = "Wiki Pageviews"
-#connection = "postgres://pguser:password123@postgres:5432/outliers"
-connection = "postgres://pguser:password123@localhost:5432/outliers"
+connection = "main_pg"
 data_sql = "select dt::timestamp as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
 backsteps = 90
 detection_method = 'mean10prc'
 cron_schedule = "*/5 * * * *"
 
-
 [[detectors]]
 title = "Wiki Pageviews Projects"
-#connection = "postgres://pguser:password123@postgres:5432/outliers"
-connection = "postgres://pguser:password123@localhost:5432/outliers"
+connection = "main_pg"
 data_sql = "select dt::timestamp as t, project as dim, views as value from wiki_pageviews"
 output = "wiki_pageviews_outliers"
 backsteps = 90
