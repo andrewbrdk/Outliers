@@ -12,6 +12,15 @@ title = "Slack Repeater"
 type = "slack"
 webhook_url = "$SLACK_WEBHOOK"
 
+[[notifications]]
+title = "Emails"
+type = "email"
+smtp_server_with_port = "smtp.gmail.com:587"
+username = "$SMTP_USERNAME"
+password = "$SMTP_PASSWORD"
+from = "$SMTP_USERNAME"
+common_recipients = [""]
+
 [[detectors]]
 title = "Wiki Pageviews"
 connection = "main_pg"
@@ -20,6 +29,7 @@ output = "wiki_pageviews_outliers"
 backsteps = 90
 detection_method = 'mean10prc'
 cron_schedule = "*/5 * * * *"
+notify_emails = [""]
 
 [[detectors]]
 title = "Wiki Pageviews Projects"

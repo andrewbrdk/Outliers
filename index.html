@@ -75,7 +75,7 @@ class XOutliers extends HTMLElement {
 					${n.type === "Slack" ? `<p><b>Webhook:</b> ${n.url}</p>` : ""}
 					${n.type === "Email" ? `
 						<p><b>SMTP:</b> ${n.smtp}</p>
-						<p><b>To:</b> ${n.to}</p>` : ""}
+						<p><b>Common Recipients:</b> ${n.common_recipients}</p>` : ""}
 				`;
 				container.appendChild(div);
 			});

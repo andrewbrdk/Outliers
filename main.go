@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/smtp"
 	"os"
@@ -69,6 +70,7 @@ type Detector struct {
 	cronID           cron.EntryID             `toml:"-"`
 	NextScheduled    time.Time                `toml:"-"`
 	OnOff            bool                     `toml:"-"`
+	NotifyEmails     []string                 `toml:"notify_emails"`
 }
 
 type Point struct {
@@ -113,18 +115,19 @@ type PostgresConnection struct {
 }
 
 type Notifier interface {
-	Notify(message string) error
+	Notify(message string, d *Detector) error
+	GetTitle() string
 }
 
 type NotificationConfig struct {
-	Title      string   `toml:"title"`
-	Type       string   `toml:"type"`
-	WebhookURL string   `toml:"webhook_url"`
-	SMTPServer string   `toml:"smtp_server"`
-	Username   string   `toml:"username"`
-	Password   string   `toml:"password"`
-	From       string   `toml:"from"`
-	DefaultTo  []string `toml:"default_to"`
+	Title              string   `toml:"title"`
+	Type               string   `toml:"type"`
+	WebhookURL         string   `toml:"webhook_url"`
+	SMTPServerWithPort string   `toml:"smtp_server_with_port"`
+	Username           string   `toml:"username"`
+	Password           string   `toml:"password"`
+	From               string   `toml:"from"`
+	CommonRecipients   []string `toml:"common_recipients"`
 }
 
 type SlackNotification struct {
@@ -133,12 +136,12 @@ type SlackNotification struct {
 }
 
 type EmailNotification struct {
-	Title      string
-	SMTPServer string
-	Username   string
-	Password   string
-	From       string
-	DefaultTo  []string
+	Title              string
+	SMTPServerWithPort string
+	Username           string
+	Password           string
+	From               string
+	CommonRecipients   []string
 }
 
 type ParsedConfig struct {
@@ -652,13 +655,13 @@ func (d *Detector) notify() error {
 	if d.TotalOutliers == 0 {
 		return nil
 	}
-	msg := fmt.Sprintf("%s Detector '%s' found %d outliers.", d.LastUpdate.Format("2006-01-02 15:04"), d.Title, d.TotalOutliers)
+	msg := fmt.Sprintf("%s Detector '%s' has found %d outliers.", d.LastUpdate.Format("2006-01-02 15:04"), d.Title, d.TotalOutliers)
 	for _, notifier := range OTL.Notifiers {
-		err := notifier.Notify(msg)
+		err := notifier.Notify(msg, d)
 		if err != nil {
-			errorLog.Printf("Error sending notification for '%s': %v", d.Title, err)
+			errorLog.Printf("Error sending %s notification for '%s': %v", notifier.GetTitle(), d.Title, err)
 		} else {
-			infoLog.Printf("Notification sent for detector '%s'", d.Title)
+			infoLog.Printf("Sent %s notification for detector '%s'", notifier.GetTitle(), d.Title)
 		}
 	}
 	return nil
@@ -863,11 +866,11 @@ func httpListNotifications(w http.ResponseWriter, r *http.Request) {
 			})
 		case *EmailNotification:
 			data = append(data, map[string]string{
-				"title":    nt.Title,
-				"type":     "Email",
-				"smtp":     nt.SMTPServer,
-				"username": nt.Username,
-				//"to":       nt.To,
+				"title":             nt.Title,
+				"type":              "Email",
+				"smtp":              nt.SMTPServerWithPort,
+				"username":          nt.Username,
+				"common_recipients": strings.Join(nt.CommonRecipients, ", "),
 			})
 		default:
 			data = append(data, map[string]string{
@@ -893,23 +896,23 @@ func (ot *Outliers) initNotifiers() error {
 			}
 		case "email":
 			ot.Notifiers[n.Title] = &EmailNotification{
-				Title:      n.Title,
-				SMTPServer: resolveEnvVar(n.SMTPServer),
-				Username:   resolveEnvVar(n.Username),
-				Password:   resolveEnvVar(n.Password),
-				From:       resolveEnvVar(n.From),
-				DefaultTo:  n.DefaultTo,
+				Title:              n.Title,
+				SMTPServerWithPort: resolveEnvVar(n.SMTPServerWithPort),
+				Username:           resolveEnvVar(n.Username),
+				Password:           resolveEnvVar(n.Password),
+				From:               resolveEnvVar(n.From),
+				CommonRecipients:   n.CommonRecipients,
 			}
 		default:
-			fmt.Printf("Unknown notifier type '%s' for '%s'\n", n.Type, n.Title)
+			errorLog.Printf("Unknown notifier type '%s' for '%s'\n", n.Type, n.Title)
 		}
 	}
 
-	fmt.Printf("Loaded %d notifiers\n", len(ot.Notifiers))
+	infoLog.Printf("Loaded %d notifiers\n", len(ot.Notifiers))
 	return nil
 }
 
-func (s *SlackNotification) Notify(message string) error {
+func (s *SlackNotification) Notify(message string, d *Detector) error {
 	if s.WebhookURL == "" {
 		return fmt.Errorf("no Slack webhook configured for %s", s.Title)
 	}
@@ -926,13 +929,43 @@ func (s *SlackNotification) Notify(message string) error {
 	return nil
 }
 
-func (e *EmailNotification) Notify(message string) error {
-	if e.SMTPServer == "" {
+func (e *EmailNotification) Notify(message string, d *Detector) error {
+	if e.SMTPServerWithPort == "" {
 		return fmt.Errorf("no SMTP server configured for %s", e.Title)
 	}
 
-	auth := smtp.PlainAuth("", e.Username, e.Password, e.SMTPServer)
-	return smtp.SendMail(e.SMTPServer, auth, e.From, e.DefaultTo, []byte(message))
+	to := combineRecipients(e.CommonRecipients, d.NotifyEmails)
+	if len(to) == 0 {
+		return fmt.Errorf("no recipients defined for %s", e.Title)
+	}
+
+	host, _, err := net.SplitHostPort(e.SMTPServerWithPort)
+	if err != nil {
+		return fmt.Errorf("invalid smtp_server: %v", err)
+	}
+
+	msg := []byte(fmt.Sprintf(
+		"To: %s\r\nSubject: Outliers in %s\r\n\r\n%s\r\n",
+		strings.Join(to, ", "),
+		d.Title,
+		message,
+	))
+
+	auth := smtp.PlainAuth("", e.Username, e.Password, host)
+	err = smtp.SendMail(e.SMTPServerWithPort, auth, e.From, to, msg)
+	if err != nil {
+		return fmt.Errorf("failed to send email via %s: %v", e.SMTPServerWithPort, err)
+	}
+	infoLog.Printf("Email sent by '%s' to %v for detector '%s'", e.Title, strings.Join(to, ", "), d.Title)
+	return nil
+}
+
+func (n *SlackNotification) GetTitle() string {
+	return n.Title
+}
+
+func (n *EmailNotification) GetTitle() string {
+	return n.Title
 }
 
 func (ot *Outliers) initConnections() error {
@@ -1035,4 +1068,18 @@ func resolveEnvVar(s string) string {
 		}
 	}
 	return s
+}
+
+func combineRecipients(base, extra []string) []string {
+	seen := make(map[string]bool)
+	var all []string
+
+	for _, addr := range append(base, extra...) {
+		addr = strings.TrimSpace(addr)
+		if addr != "" && !seen[addr] {
+			seen[addr] = true
+			all = append(all, addr)
+		}
+	}
+	return all
 }
