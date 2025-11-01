@@ -89,6 +89,10 @@ x-detector {
 		column-gap: 0.5rem;
 		margin-top: 0.5rem;
 		align-items: center;
+		background-color: #f5f5f5;
+		font-family: monospace;
+		border-radius: 7px;
+		padding: 0.5rem;
 		p {
 			margin: 0;
 			display: contents;

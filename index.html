@@ -113,7 +113,7 @@ class XDetector extends HTMLElement {
 		btn = this.querySelector('button.onoff-btn');
 		if (btn) btn.onclick = () => this.onOff();
 		
-		btn = this.querySelector('button.change-btn');
+		btn = this.querySelector('button.conf-btn');
 		if (btn) btn.onclick = () => {
 			this.querySelector('.detector-info').classList.toggle('hidden');
 		};
@@ -146,15 +146,16 @@ class XDetector extends HTMLElement {
 				<span class="schedule">${schedule_text}</span>
 				<button class="check-outliers-btn">Update</button>
 				<button class="onoff-btn ${on_off_btn_hidden}">${on_off_btn_text}</button>
-				<button class="change-btn">Change</button>
+				<button class="conf-btn">Conf</button>
 			</div>
 		</div>
 		<div class="detector-info hidden">
-			<p><span class="label">ConnectionString:</span><span class="value">${escapeHTML(this.detector.ConnectionString)}</span></p>
+			<p><span class="label">ConnectionName:</span><span class="value">${escapeHTML(this.detector.ConnectionName)}</span></p>
 			<p><span class="label">DataSQL:</span><span class="value">${escapeHTML(this.detector.DataSQL)}</span></p>
 			<p><span class="label">OutputTable:</span><span class="value">${escapeHTML(this.detector.OutputTable)}</span></p>
 			<p><span class="label">Backsteps:</span><span class="value">${this.detector.Backsteps}</span></p>
 			<p><span class="label">DetectionMethod:</span><span class="value">${escapeHTML(this.detector.DetectionMethod)}</span></p>
+			<p><span class="label">CronSchedule:</span><span class="value">${escapeHTML(this.detector.CronSchedule)}</span></p>
 		</div>
 		<div class="plots"></div>`;
 		return html;
