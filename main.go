@@ -659,13 +659,15 @@ func (d *Detector) notify() error {
 		return nil
 	}
 	msg := fmt.Sprintf("%s Detector '%s' has found %d outliers.", d.LastUpdate.Format("2006-01-02 15:04"), d.Title, d.TotalOutliers)
-	for _, notifier := range OTL.Notifiers {
-		err := notifier.Notify(msg, d)
-		if err != nil {
-			errorLog.Printf("Error sending %s notification for '%s': %v", notifier.GetTitle(), d.Title, err)
-		} else {
-			infoLog.Printf("Sent %s notification for detector '%s'", notifier.GetTitle(), d.Title)
-		}
+	for _, n := range OTL.Notifiers {
+		go func(notifier Notifier) {
+			err := notifier.Notify(msg, d)
+			if err != nil {
+				errorLog.Printf("Error sending %s notification for '%s': %v", notifier.GetTitle(), d.Title, err)
+			} else {
+				infoLog.Printf("Sent %s notification for detector '%s'", notifier.GetTitle(), d.Title)
+			}
+		}(n)
 	}
 	return nil
 }
