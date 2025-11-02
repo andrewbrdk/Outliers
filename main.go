@@ -349,6 +349,7 @@ func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
 				errorLog.Printf("Error detecting outliers '%s': %v", d.Title, err)
 			}
 			d.NextScheduled = ot.cron.Entry(d.cronID).Next
+			broadcastSSEUpdate(fmt.Sprintf(`{"status":"completed", "detector":"%d"}`, d.Id))
 		}()
 	})
 	if err != nil {
@@ -682,6 +683,7 @@ func httpServer() {
 	http.HandleFunc("/outliers/plot", outliersPlotHandler)
 	http.HandleFunc("/outliers/onoff", outliersOnOffHandler)
 	http.HandleFunc("/notifications", httpListNotifications)
+	http.HandleFunc("/events", httpEvents)
 	log.Fatal(http.ListenAndServe(CONF.port, nil))
 }
 
@@ -738,6 +740,7 @@ func outliersUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			errorLog.Printf("Error detecting outliers for '%s': %v", det.Title, err)
 		}
+		broadcastSSEUpdate(fmt.Sprintf(`{"status":"completed", "detector":"%d"}`, d.Id))
 	}(d)
 
 	json.NewEncoder(w).Encode(struct {
@@ -1078,4 +1081,59 @@ func combineRecipients(base, extra []string) []string {
 		}
 	}
 	return all
+}
+
+type sseClients struct {
+	clients map[chan string]bool
+	mu      sync.Mutex
+}
+
+// todo: avoid global variables
+var SSECLIENTS = &sseClients{
+	clients: make(map[chan string]bool),
+}
+
+func addSSEClient(ch chan string) {
+	SSECLIENTS.mu.Lock()
+	defer SSECLIENTS.mu.Unlock()
+	SSECLIENTS.clients[ch] = true
+}
+
+func removeSSEClient(ch chan string) {
+	SSECLIENTS.mu.Lock()
+	defer SSECLIENTS.mu.Unlock()
+	delete(SSECLIENTS.clients, ch)
+	close(ch)
+}
+
+func broadcastSSEUpdate(msg string) {
+	SSECLIENTS.mu.Lock()
+	defer SSECLIENTS.mu.Unlock()
+	infoLog.Printf("Event '%s'", msg)
+	for ch := range SSECLIENTS.clients {
+		select {
+		case ch <- msg:
+		default: // drop message if channel overflows
+		}
+	}
+}
+
+func httpEvents(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	clientChan := make(chan string, 30)
+	addSSEClient(clientChan)
+	defer removeSSEClient(clientChan)
+
+	for msg := range clientChan {
+		fmt.Fprintf(w, "data: %s\n\n", msg)
+		flusher.Flush()
+	}
 }

@@ -16,6 +16,7 @@
 class XOutliers extends HTMLElement {
 	#detectors = null;
 	#detectorsData = null;
+	#evSrc = null;
 	
 	constructor() {
 		super();
@@ -39,6 +40,10 @@ class XOutliers extends HTMLElement {
 			this.#detectors.hidden = false;
 			let d = await res.json();
 			this.renderDetectors(d);
+			this.setupEventSource();
+		} else {
+			this.#detectors.hidden = true;
+			this.closeEventSource();
 		}
 		this.loadNotifications();
 	}
@@ -85,6 +90,27 @@ class XOutliers extends HTMLElement {
 			console.error("Error loading notifications:", err);
 		}
 	}
+
+	setupEventSource() {
+		if (!this.#evSrc || this.#evSrc.readyState === EventSource.CLOSED) {
+			this.#evSrc = new EventSource("/events");
+			this.#evSrc.onmessage = (e) => {
+				//todo: only update changed detector
+				this.renderPage();
+			};
+			this.#evSrc.onerror = () => {
+				console.error("EventSource connection error.");
+			};
+		}
+	}
+
+	closeEventSource() {
+		if (this.#evSrc) {
+			this.#evSrc.close();
+			this.#evSrc = null;
+		}
+	}
+
 }
 
 class XDetector extends HTMLElement {
