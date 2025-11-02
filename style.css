@@ -34,21 +34,80 @@ x-detector {
 		align-items: center;
 		margin-bottom: 0.5em;
 	}
+	.detector-header .left {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex: 40;
+	}
 	.detector-header h3 {
 		margin: 0;
-		flex: 20;
+		line-height: 1;
+		display: flex;
+		align-items: center;
+	}
+	.detector-header .info {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.2em;
+		height: 1.2em;
+		border-radius: 50%;
+		border: 1.5px solid black;
+		background-color: #fff;
+		color: black;
+		font-style: italic;
+		font-weight: normal;
+		font-size: 1em;
+		line-height: 1;
+		cursor: pointer;
+		padding: 0;
+	}
+	.detector-header button.info:hover {
+		box-shadow: 0 0 0px 1px black;
+		font-weight: bold;
+	}
+	.detector-header button.info:active {
+  		background-color: #eee;
 	}
 	.detector-header .outliers-text {
 		flex: 60;
 		text-align: center;
 		font-style: italic;
 	}
-	.detector-header .update {
-		flex: 20;
-		text-align: right;
-	}
 	.detector-header .schedule {
 		font-style: italic;
+	}
+	.detector-header button.update,
+	.detector-header button.onoff {
+		display: inline-block;
+		background-color: white;
+		border: 1.5px solid black;
+		border-radius: 7px;
+		cursor: pointer;
+		font-size: 1rem;
+		font-weight: 400;
+		margin: 0 5px;
+		padding: 5px 10px;
+		min-width: 3rem;
+		text-align: center;
+		white-space: nowrap;
+		transition: background-color 0.1s ease;
+	}
+	.detector-header button.onoff.off {
+		background-color: #ddd;
+	}
+	.detector-header button.update:hover,
+	.detector-header button.onoff:hover {
+  		box-shadow: 0 0 0px 1px black;
+	}
+	.detector-header button.update:active,
+	.detector-header button.onoff:active {
+  		background-color: #eee;
+	}
+	.detector-header button.hidden {
+		/* todo: apply general .hidden style */
+		display: none;
 	}
 	.detector-header .last-update {
 		font-style: italic;

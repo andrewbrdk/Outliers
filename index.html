@@ -23,7 +23,6 @@ class XOutliers extends HTMLElement {
 		this.innerHTML = `
 	 		<h1><a href="/">Outliers</a></h1>
 			<div id="detectors"></div>
-			<button>Add Outliers Detector</button>
 			<section class="notifications-section">
 				<h2>Notifications</h2>
 				<div id="notifications"></div>
@@ -133,13 +132,13 @@ class XDetector extends HTMLElement {
 
 	bindEvents() {
 		this.unbindEvents();
-		let btn = this.querySelector('button.check-outliers-btn');
+		let btn = this.querySelector('button.update');
 		if (btn) btn.onclick = () => this.onCheckOutliers();
 		
-		btn = this.querySelector('button.onoff-btn');
+		btn = this.querySelector('button.onoff');
 		if (btn) btn.onclick = () => this.onOff();
 		
-		btn = this.querySelector('button.conf-btn');
+		btn = this.querySelector('button.info');
 		if (btn) btn.onclick = () => {
 			this.querySelector('.detector-info').classList.toggle('hidden');
 		};
@@ -156,23 +155,27 @@ class XDetector extends HTMLElement {
 		if (this.detector.TotalOutliers > 0) {
 			outliers_text = `${this.detector.TotalOutliers} new outliers`;
 			if (this.detector.DimsWithOutliers > 1) {
-				outliers_text += ` in ${this.detector.DimsWithOutliers} dimensions`;
+				outliers_text += ` in ${this.detector.DimsWithOutliers} series`;
 			}
 		}
 		let schedule_text = escapeHTML(this.detector.HCron);
 		let upd_text = this.detector.LastUpdate && this.detector.LastUpdate != "0001-01-01T00:00:00Z" ? this.formatDateTime(new Date(this.detector.LastUpdate)) : '-' ;
-		let on_off_btn_text = this.detector.OnOff ? 'Turn Off' : 'Turn On'
+
 		let on_off_btn_hidden = this.detector.CronSchedule.trim() === '' ? 'hidden' : '';
+		let on_off_btn_text = this.detector.OnOff ? 'On' : 'Off';
+		let on_off_btn_off_class = this.detector.OnOff ? '' : 'off';
 
 		let html = `
 		<div class="detector-header">
-			<h3>${escapeHTML(this.detector.Title)}</h3>
+			<div class="left">
+				<h3>${escapeHTML(this.detector.Title)}</h3>
+				<button class="info">i</button>
+			</div>
 			<div class="outliers-text">${outliers_text}</div>
 			<div>
 				<span class="schedule">${schedule_text}</span>
-				<button class="check-outliers-btn">Update</button>
-				<button class="onoff-btn ${on_off_btn_hidden}">${on_off_btn_text}</button>
-				<button class="conf-btn">Conf</button>
+				<button class="update">Update</button>
+				<button class="onoff ${on_off_btn_hidden} ${on_off_btn_off_class}">${on_off_btn_text}</button>
 			</div>
 		</div>
 		<div class="detector-info hidden">
