@@ -342,12 +342,14 @@ func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
 		return
 	}
 	d.cronID, err = ot.cron.AddFunc(d.CronSchedule, func() {
-		infoLog.Printf("Scheduled update for detector '%s' started", d.Title)
-		err := d.detectOutliers()
-		if err != nil {
-			errorLog.Printf("Error detecting outliers '%s': %v", d.Title, err)
-		}
-		d.NextScheduled = ot.cron.Entry(d.cronID).Next
+		go func() {
+			infoLog.Printf("Scheduled update for detector '%s' started", d.Title)
+			err := d.detectOutliers()
+			if err != nil {
+				errorLog.Printf("Error detecting outliers '%s': %v", d.Title, err)
+			}
+			d.NextScheduled = ot.cron.Entry(d.cronID).Next
+		}()
 	})
 	if err != nil {
 		errorLog.Printf("Error scheduling detector '%s' update: %v", d.Title, err)
@@ -704,50 +706,52 @@ func httpOutliers(w http.ResponseWriter, r *http.Request) {
 	w.Write(fData)
 }
 
-func outliersUpdateHandler(w http.ResponseWriter, r *http.Request) {
+func parseDetectorID(w http.ResponseWriter, r *http.Request) (int, bool) {
 	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(Response{Status: "error", Message: "missing id"})
-		return
+		http.Error(w, `{"status":"error","message":"missing id"}`, http.StatusBadRequest)
+		return 0, false
 	}
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(Response{Status: "error", Message: "invalid id"})
+		http.Error(w, `{"status":"error","message":"invalid id"}`, http.StatusBadRequest)
+		return 0, false
+	}
+	return id, true
+}
+
+func outliersUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	id, ok := parseDetectorID(w, r)
+	if !ok {
 		return
 	}
 	d := OTL.Detectors[id]
 	if d == nil {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(Response{Status: "error", Message: "forecast not found"})
+		http.Error(w, `{"status":"error", "message":"detector not found"}`, http.StatusNotFound)
 		return
 	}
-	if err := d.detectOutliers(); err != nil {
-		errorLog.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(Response{Status: "error", Message: err.Error()})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
+	go func(det *Detector) {
+		infoLog.Printf("Manual outlier detection triggered for '%s'", det.Title)
+		err := det.detectOutliers()
+		if err != nil {
+			errorLog.Printf("Error detecting outliers for '%s': %v", det.Title, err)
+		}
+	}(d)
+
 	json.NewEncoder(w).Encode(struct {
 		Status   string    `json:"status"`
 		Detector *Detector `json:"detector"`
 	}{
-		Status:   "ok",
+		Status:   "started",
 		Detector: d,
 	})
 }
 
 func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("id")
-	if idStr == "" {
-		http.Error(w, "missing id", http.StatusBadRequest)
-		return
-	}
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+	id, ok := parseDetectorID(w, r)
+	if !ok {
 		return
 	}
 
@@ -814,22 +818,14 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("id")
-	if idStr == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(Response{Status: "error", Message: "missing id"})
-		return
-	}
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(Response{Status: "error", Message: "invalid id"})
+	w.Header().Set("Content-Type", "application/json")
+	id, ok := parseDetectorID(w, r)
+	if !ok {
 		return
 	}
 	d := OTL.Detectors[id]
 	if d == nil {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(Response{Status: "error", Message: "forecast not found"})
+		http.Error(w, `{"status":"error", "message":"detector not found"}`, http.StatusNotFound)
 		return
 	}
 	if d.OnOff {
@@ -842,7 +838,7 @@ func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
 		OTL.scheduleDetectorUpdate(d)
 		infoLog.Printf("Detector '%s' turned ON", d.Title)
 	}
-	w.Header().Set("Content-Type", "application/json")
+
 	json.NewEncoder(w).Encode(struct {
 		Status   string    `json:"status"`
 		Detector *Detector `json:"detector"`
