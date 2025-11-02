@@ -682,7 +682,6 @@ func httpServer() {
 	http.HandleFunc("/outliers/update", outliersUpdateHandler)
 	http.HandleFunc("/outliers/plot", outliersPlotHandler)
 	http.HandleFunc("/outliers/onoff", outliersOnOffHandler)
-	http.HandleFunc("/notifications", httpListNotifications)
 	http.HandleFunc("/events", httpEvents)
 	log.Fatal(http.ListenAndServe(CONF.port, nil))
 }
@@ -849,37 +848,6 @@ func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
 		Status:   "ok",
 		Detector: d,
 	})
-}
-
-func httpListNotifications(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	data := make([]map[string]string, 0)
-
-	for _, n := range OTL.parsedConf.Notifications {
-		_, ok := OTL.Notifiers[n.Title]
-		if !ok {
-			continue
-		}
-		switch n.Type {
-		case "slack":
-			data = append(data, map[string]string{
-				"title": n.Title,
-				"type":  "Slack",
-				"url":   n.WebhookURL,
-			})
-		case "email":
-			data = append(data, map[string]string{
-				"title":             n.Title,
-				"type":              "Email",
-				"smtp":              n.SMTPServerWithPort,
-				"username":          n.Username,
-				"from":              n.From,
-				"common_recipients": strings.Join(n.CommonRecipients, ", "),
-			})
-		}
-	}
-
-	json.NewEncoder(w).Encode(data)
 }
 
 func (ot *Outliers) initNotifiers() error {

@@ -38,7 +38,7 @@ x-detector {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		flex: 40;
+		flex: 30;
 	}
 	.detector-header h3 {
 		margin: 0;
@@ -71,9 +71,14 @@ x-detector {
   		background-color: #eee;
 	}
 	.detector-header .outliers-text {
-		flex: 60;
+		flex: 40;
 		text-align: center;
 		font-style: italic;
+		/* todo: center relative to the page */
+	}
+	.detector-header .right {
+		flex: 30;
+		text-align: right;
 	}
 	.detector-header .schedule {
 		font-style: italic;
@@ -168,26 +173,4 @@ x-detector {
 	.detector-info.hidden {
 		display: none;
 	}
-}
-
-.notifications-section {
-	margin-top: 40px;
-	padding: 20px;
-	border-top: 1px solid #ccc;
-}
-
-.notification-card {
-	border: 1px solid #ddd;
-	border-radius: 8px;
-	padding: 12px;
-	margin: 10px 0;
-	background: #fafafa;
-}
-
-.notification-card h3 {
-	margin: 0 0 6px 0;
-}
-
-.notification-card p {
-	margin: 2px 0;
 }

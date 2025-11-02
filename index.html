@@ -23,10 +23,6 @@ class XOutliers extends HTMLElement {
 		this.innerHTML = `
 	 		<h1><a href="/">Outliers</a></h1>
 			<div id="detectors"></div>
-			<section class="notifications-section">
-				<h2>Notifications</h2>
-				<div id="notifications"></div>
-			</section>
 		`;
 		this.#detectors = this.querySelector('#detectors');
 		this.renderPage();
@@ -44,7 +40,6 @@ class XOutliers extends HTMLElement {
 			this.#detectors.hidden = true;
 			this.closeEventSource();
 		}
-		this.loadNotifications();
 	}
 
 	async renderDetectors(data) {
@@ -59,35 +54,6 @@ class XOutliers extends HTMLElement {
 			xdetectors.push(f);
 		}
 		this.#detectors.replaceChildren(...xdetectors);
-	}
-
-	async loadNotifications() {
-		try {
-			const res = await fetch("/notifications");
-			if (!res.ok) throw new Error("Failed to load notifications");
-			const data = await res.json();
-
-			const container = document.getElementById("notifications");
-			container.innerHTML = "";
-
-			data.forEach(n => {
-				const div = document.createElement("div");
-				div.className = "notification-card";
-				div.innerHTML = `
-					<h3>${n.title}</h3>
-					<p><b>Type:</b> ${n.type}</p>
-					${n.type === "Slack" ? `<p><b>Webhook:</b> ${n.url}</p>` : ""}
-					${n.type === "Email" ? `
-						<p><b>SMTP:</b> ${n.smtp}</p>
-						<p><b>From:</b> ${n.from}</p>
-						<p><b>Username:</b> ${n.username}</p>
-						<p><b>Common Recipients:</b> ${n.common_recipients}</p>` : ""}
-				`;
-				container.appendChild(div);
-			});
-		} catch (err) {
-			console.error("Error loading notifications:", err);
-		}
 	}
 
 	setupEventSource() {
@@ -172,7 +138,7 @@ class XDetector extends HTMLElement {
 				<button class="info">i</button>
 			</div>
 			<div class="outliers-text">${outliers_text}</div>
-			<div>
+			<div class="right">
 				<span class="schedule">${schedule_text}</span>
 				<button class="update">Update</button>
 				<button class="onoff ${on_off_btn_hidden} ${on_off_btn_off_class}">${on_off_btn_text}</button>
