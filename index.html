@@ -14,6 +14,7 @@
 
 <script>
 class XOutliers extends HTMLElement {
+	#login = null;
 	#detectors = null;
 	#detectorsData = null;
 	#evSrc = null;
@@ -22,9 +23,16 @@ class XOutliers extends HTMLElement {
 		super();
 		this.innerHTML = `
 	 		<h1><a href="/">Outliers</a></h1>
+			<x-login></x-login>
 			<div id="detectors"></div>
 		`;
 		this.#detectors = this.querySelector('#detectors');
+		this.#login = this.querySelector('x-login');
+		this.#login.hidden = true;
+		this.#detectors.hidden = true;
+		this.addEventListener('loginsuccess', (e) => {
+			this.renderPage();
+		});
 		this.renderPage();
 	}
 
@@ -33,9 +41,14 @@ class XOutliers extends HTMLElement {
 		const statusCode = res.status;
 		if (statusCode == 200) {
 			this.#detectors.hidden = false;
+			this.#login.hidden = true;
 			let d = await res.json();
 			this.renderDetectors(d);
 			this.setupEventSource();
+		} else if (statusCode == 401) { // unauthorized
+			this.#login.hidden = false;
+			this.#detectors.hidden = true;
+			this.closeEventSource();
 		} else {
 			this.#detectors.hidden = true;
 			this.closeEventSource();
@@ -76,6 +89,46 @@ class XOutliers extends HTMLElement {
 		}
 	}
 
+}
+
+class XLogin extends HTMLElement {
+	constructor() {
+		super();
+		this.innerHTML = `
+			<form>
+				<label for="password">Password:</label>
+				<input type="password" id="password" name="password" required>
+				<button type="button">Login</button>
+				<br/>
+				<div id="invalidpassword" style="display: none;">Invalid Password</div>
+			</form>
+		`;
+		this.querySelector('form').onsubmit = (e) => {
+			e.preventDefault();
+			this.submitLogin();
+		};
+		this.querySelector('button').onclick = (e) => {
+			e.preventDefault();
+			this.submitLogin();
+		};
+	}
+
+	async submitLogin() {
+		const password = this.querySelector('#password').value;
+		const response = await fetch('/login', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'include',
+			body: JSON.stringify({ password }),
+		});
+		if (response.ok) {
+			this.querySelector('#invalidpassword').style.display = "none";
+			this.dispatchEvent(new CustomEvent('loginsuccess', { bubbles: true }));
+		} else {
+			this.querySelector('#invalidpassword').style.display = "inline";
+			setTimeout(() => {this.querySelector('#invalidpassword').style.display = "none";}, 3000);
+		}
+	}
 }
 
 class XDetector extends HTMLElement {
@@ -287,8 +340,9 @@ function escapeHTML(str) {
 	return div.innerHTML;
 }
 
-customElements.define('x-detector', XDetector);
 customElements.define('x-outliers', XOutliers);
+customElements.define('x-login', XLogin);
+customElements.define('x-detector', XDetector);
 
 </script>
 </body>

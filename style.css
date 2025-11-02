@@ -17,11 +17,61 @@ h1 a {
 	display: none;
 }
 
+x-login[hidden], #detectors[hidden] {
+	/*todo: apply general .hidden style */
+	display: none;
+}
+
 x-outliers {
 	display: block;
 	margin: 0 auto;
 	#detectors {
 		margin-bottom: 50px;
+	}
+}
+
+x-login {
+	display: block;
+	text-align: center;
+
+	form {
+		display: inline-block;
+		margin-left: auto;
+		margin-right: auto;
+		text-align: center;
+	}
+	input {
+		display: inline-block;
+		box-shadow: none;
+		margin-bottom: 10px;
+		border: 1.5px solid black;
+		padding: 2px 10px;
+		border-radius: 7px;
+		font-size: 0.95rem;
+		font-weight: 400;
+	}
+	button {
+		display: inline-block;
+		background-color: white;
+		border: 1.5px solid black;
+		border-radius: 7px;
+		cursor: pointer;
+		font-size: 1rem;
+		font-weight: 400;
+		margin: 0 5px;
+		padding: 2px 10px;
+		text-align: center;
+		transition: background-color 0.1s ease;
+	}
+	button:hover {
+		box-shadow: 0 0 0px 1px black;
+	}
+	button:active {
+		background-color: #eee;
+	}
+	#invalidpassword {
+		font-weight: bold;
+		color: black;
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/fsnotify/fsnotify"
+	"github.com/golang-jwt/jwt/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	hcron "github.com/lnquy/cron"
 	"github.com/robfig/cron/v3"
@@ -29,6 +31,8 @@ import (
 
 //go:embed index.html style.css
 var embedded embed.FS
+
+var jwtSecretKey []byte
 
 var infoLog *log.Logger
 var errorLog *log.Logger
@@ -49,6 +53,7 @@ type Outliers struct {
 type Config struct {
 	port     string
 	confFile string
+	password string
 }
 
 type Detector struct {
@@ -153,6 +158,7 @@ type ParsedConfig struct {
 
 func main() {
 	initConfig()
+	jwtSecretKey = generateRandomKey(32)
 	infoLog = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 	errorLog = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 	err := OTL.loadConfFile(CONF.confFile)
@@ -171,12 +177,24 @@ func main() {
 func initConfig() {
 	CONF.port = ":9090"
 	CONF.confFile = "outliers.toml"
+	CONF.password = ""
 	if port := os.Getenv("OUTLIERS_PORT"); port != "" {
 		CONF.port = ":" + port
 	}
 	if confFile := os.Getenv("OUTLIERS_CONF"); confFile != "" {
 		CONF.confFile = confFile
 	}
+	CONF.password = os.Getenv("OUTLIERS_PASSWORD")
+}
+
+func generateRandomKey(size int) []byte {
+	key := make([]byte, size)
+	_, err := rand.Read(key)
+	if err != nil {
+		errorLog.Printf("Failed to generate a JWT secret key. Aborting.")
+		os.Exit(1)
+	}
+	return key
 }
 
 func startFSWatcher() {
@@ -680,6 +698,7 @@ type Response struct {
 func httpServer() {
 	http.HandleFunc("/", httpIndex)
 	http.Handle("/style.css", http.FileServer(http.FS(embedded)))
+	http.HandleFunc("/login", httpLogin)
 	http.HandleFunc("/outliers", httpOutliers)
 	http.HandleFunc("/outliers/update", outliersUpdateHandler)
 	http.HandleFunc("/outliers/plot", outliersPlotHandler)
@@ -698,7 +717,71 @@ func httpIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+func httpLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	var creds struct {
+		Password string `json:"password"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&creds)
+	if err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	if creds.Password != CONF.password {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+	expirationTime := time.Now().Add(15 * time.Minute)
+	claims := jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(expirationTime),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtSecretKey)
+	if err != nil {
+		http.Error(w, "Failed to create token", http.StatusInternalServerError)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    tokenString,
+		Expires:  expirationTime,
+		HttpOnly: true,
+	})
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Login successful!"))
+}
+
+func httpCheckAuth(w http.ResponseWriter, r *http.Request) (error, int, string) {
+	if CONF.password == "" {
+		return nil, http.StatusOK, "Ok"
+	}
+	cookie, err := r.Cookie("token")
+	if err != nil {
+		if err == http.ErrNoCookie {
+			return err, http.StatusUnauthorized, "Unauthorized"
+		}
+		return err, http.StatusBadRequest, "Bad request"
+	}
+	tokenStr := cookie.Value
+	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		return jwtSecretKey, nil
+	})
+	if err != nil || !token.Valid {
+		return err, http.StatusUnauthorized, "Unauthorized"
+	}
+	//todo: prolong token
+	return nil, http.StatusOK, "Ok"
+}
+
 func httpOutliers(w http.ResponseWriter, r *http.Request) {
+	err, code, msg := httpCheckAuth(w, r)
+	if err != nil {
+		http.Error(w, msg, code)
+		return
+	}
 	fData, err := json.Marshal(&OTL)
 	if err != nil {
 		errorLog.Println(err)
@@ -724,8 +807,12 @@ func parseDetectorID(w http.ResponseWriter, r *http.Request) (int, bool) {
 }
 
 func outliersUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	err, code, msg := httpCheckAuth(w, r)
+	if err != nil {
+		http.Error(w, msg, code)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-
 	id, ok := parseDetectorID(w, r)
 	if !ok {
 		return
@@ -754,11 +841,15 @@ func outliersUpdateHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
+	err, code, msg := httpCheckAuth(w, r)
+	if err != nil {
+		http.Error(w, msg, code)
+		return
+	}
 	id, ok := parseDetectorID(w, r)
 	if !ok {
 		return
 	}
-
 	var d *Detector
 	if d = OTL.Detectors[id]; d == nil {
 		http.Error(w, "Detector not found", http.StatusNotFound)
@@ -822,6 +913,11 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
+	err, code, msg := httpCheckAuth(w, r)
+	if err != nil {
+		http.Error(w, msg, code)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	id, ok := parseDetectorID(w, r)
 	if !ok {
@@ -1089,6 +1185,11 @@ func broadcastSSEUpdate(msg string) {
 }
 
 func httpEvents(w http.ResponseWriter, r *http.Request) {
+	err, code, msg := httpCheckAuth(w, r)
+	if err != nil {
+		http.Error(w, msg, code)
+		return
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
