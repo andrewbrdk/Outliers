@@ -18,4 +18,4 @@ OUTLIERS_PORT=":9090"                    # web server port
 OUTLIERS_CONF="./outliers.toml"          # config file
 ```
 
-`uPlot`: [https://github.com/leeoniya/uPlot](https://github.com/leeoniya/uPlot)
+uPlot: [https://github.com/leeoniya/uPlot](https://github.com/leeoniya/uPlot)

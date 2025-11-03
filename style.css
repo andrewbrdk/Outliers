@@ -175,6 +175,9 @@ x-detector {
 		gap: 20px;
 		margin: 20px auto;
 	}
+	.plots.hidden {
+		display: none;
+	}
 	.plot-wrapper {
 		display: grid;
 		grid-template-columns: 10% 70% 20%; /* Dim | Plot | List */

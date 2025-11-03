@@ -61,10 +61,12 @@ class XOutliers extends HTMLElement {
 		let sorted = Object.values(this.#detectorsData['Detectors']).sort((a, b) => {
         	return a.Title.localeCompare(b.Title);
     	});
-		for await (const [_, fc] of sorted.entries()) {
-			let f = document.createElement('x-detector');
-			await f.init(fc);			
-			xdetectors.push(f);
+		for await (const [_, det] of sorted.entries()) {
+			let xd = document.createElement('x-detector');
+			let existing_detector = this.#detectors.querySelector(`#detector${det.Id}`);
+			let {collapsed} = existing_detector ? existing_detector.getDisplayedState() : {collapsed: true};
+			await xd.init(det, collapsed);			
+			xdetectors.push(xd);
 		}
 		this.#detectors.replaceChildren(...xdetectors);
 	}
@@ -133,13 +135,18 @@ class XLogin extends HTMLElement {
 
 class XDetector extends HTMLElement {
 	detector = null;
+	#collapsed = true;
 
 	getDisplayedState() {
-		// pass
+		return {
+			collapsed: this.#collapsed
+		};
 	}
 
-	async init(detector) {
+	async init(detector, collapsed = true) {
 		this.detector = detector;
+		this.#collapsed = collapsed;
+		this.id = `detector${this.detector.Id}`;
 		await this.update();
 	}
 
@@ -161,9 +168,27 @@ class XDetector extends HTMLElement {
 		if (btn) btn.onclick = () => {
 			this.querySelector('.detector-info').classList.toggle('hidden');
 		};
+
+		this.onmouseenter = () => {
+			this.querySelector('.collapse').style.color = 'black';
+		};
+		this.onmouseleave = () => {
+			this.querySelector('.collapse').style.color = '#00000000';
+		};
+
+		this.onclick = async (e) => {
+			if (e.target.matches('h3.detector-title') || e.target.matches('span.collapse')) {
+				this.showHide();
+			} else if (e.target.closest('div.outliers-text')) {
+				this.showHide();
+			}
+		};
 	}
 	
 	unbindEvents() {
+		this.onclick = null;
+		this.onmouseenter = null;
+		this.onmouseleave = null;
 		this.querySelectorAll('button').forEach(btn => btn.onclick = null);
 		//todo: unnecessary?
 		this.querySelectorAll('.u-over').forEach(p => {p.onmouseenter = null; p.onmouseleave = null;});
@@ -184,10 +209,14 @@ class XDetector extends HTMLElement {
 		let on_off_btn_text = this.detector.OnOff ? 'On' : 'Off';
 		let on_off_btn_off_class = this.detector.OnOff ? '' : 'off';
 
+		let collapse_btn_text = this.#collapsed ? '+' : '-';
+		let plots_hidden = this.#collapsed ? 'hidden' : '';
+
 		let html = `
 		<div class="detector-header">
 			<div class="left">
-				<h3>${escapeHTML(this.detector.Title)}</h3>
+				<span class="collapse"><strong>${collapse_btn_text}</strong></span>
+				<h3 class="detector-title">${escapeHTML(this.detector.Title)}</h3>
 				<button class="info">i</button>
 			</div>
 			<div class="outliers-text">${outliers_text}</div>
@@ -205,7 +234,7 @@ class XDetector extends HTMLElement {
 			<p><span class="label">DetectionMethod:</span><span class="value">${escapeHTML(this.detector.DetectionMethod)}</span></p>
 			<p><span class="label">CronSchedule:</span><span class="value">${escapeHTML(this.detector.CronSchedule)}</span></p>
 		</div>
-		<div class="plots"></div>`;
+		<div class="plots ${plots_hidden}"></div>`;
 		return html;
 	}
 
@@ -320,6 +349,11 @@ class XDetector extends HTMLElement {
 		} catch (err) {
 			console.error('Error turning on-off:', err);
 		}
+	}
+
+	async showHide() {
+		this.#collapsed = !this.#collapsed;
+		this.update();
 	}
 
 	formatDateTime(d) {
