@@ -69,6 +69,7 @@ type Detector struct {
 	LastUpdate       time.Time                `toml:"-"`
 	hasDims          bool                     `toml:"-"`
 	TotalOutliers    int                      `toml:"-"`
+	DimsOutliers     map[string]int           `toml:"-"`
 	DimsWithOutliers int                      `toml:"-"`
 	CronSchedule     string                   `toml:"cron_schedule"`
 	HCron            string                   `toml:"-"`
@@ -547,10 +548,10 @@ func (d *Detector) markOutliers() error {
 
 	d.markedPoints = make(map[string][]MarkedPoint)
 	d.TotalOutliers = 0
+	d.DimsOutliers = make(map[string]int)
 	d.DimsWithOutliers = 0
 
 	for dim, pts := range d.points {
-
 		var dimMarked []MarkedPoint
 		outlierCount := 0
 
@@ -585,10 +586,10 @@ func (d *Detector) markOutliers() error {
 
 		d.markedPoints[dim] = dimMarked
 		d.TotalOutliers += outlierCount
+		d.DimsOutliers[dim] = outlierCount
 		if outlierCount > 0 {
 			d.DimsWithOutliers++
 		}
-
 		infoLog.Printf("Dim=%s: detected %d outliers in last %d points", dim, outlierCount, d.Backsteps)
 	}
 	d.LastUpdate = time.Now()
@@ -676,7 +677,28 @@ func (d *Detector) notify() error {
 	if d.TotalOutliers == 0 {
 		return nil
 	}
-	msg := fmt.Sprintf("%s Detector '%s' has found %d outliers.", d.LastUpdate.Format("2006-01-02 15:04"), d.Title, d.TotalOutliers)
+	var msg string
+	if !d.hasDims {
+		msg = fmt.Sprintf(
+			"%s Detector '%s' has found %d outliers.",
+			d.LastUpdate.Format("2006-01-02 15:04"),
+			d.Title,
+			d.TotalOutliers,
+		)
+	} else {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf(
+			"%s Detector '%s' has found %d outliers in %d series:\n",
+			d.LastUpdate.Format("2006-01-02 15:04"),
+			d.Title,
+			d.TotalOutliers,
+			d.DimsWithOutliers,
+		))
+		for dim, count := range d.DimsOutliers {
+			sb.WriteString(fmt.Sprintf("- %s: %d outliers\n", dim, count))
+		}
+		msg = sb.String()
+	}
 	for _, n := range OTL.Notifiers {
 		go func(notifier Notifier) {
 			err := notifier.Notify(msg, d)
