@@ -1,5 +1,5 @@
 body {
-	margin-left: 10%;
+	margin-left: 7%;
 	margin-right: 10%;
 	font-family: sans-serif;
 }
@@ -77,96 +77,112 @@ x-login {
 
 x-detector {
 	display: block;
-	margin-bottom: 100px;
+	margin-bottom: 50px;
+
+	.collapse-sign {
+		color: #00000000;
+		cursor: pointer;
+		min-width: 0.8em;
+		text-align: center;
+		font-size: 1.2em;
+		user-select: none;
+	}
+	&:hover .collapse-sign {
+		color: black;
+	}
 	.detector-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 0.5em;
-	}
-	.detector-header .left {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		flex: 30;
-	}
-	.detector-header h3 {
-		margin: 0;
-		line-height: 1;
-		display: flex;
-		align-items: center;
-	}
-	.detector-header .info {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 1.2em;
-		height: 1.2em;
-		border-radius: 50%;
-		border: 1.5px solid black;
-		background-color: #fff;
-		color: black;
-		font-style: italic;
-		font-weight: normal;
-		font-size: 1em;
-		line-height: 1;
-		cursor: pointer;
-		padding: 0;
-	}
-	.detector-header button.info:hover {
-		box-shadow: 0 0 0px 1px black;
-		font-weight: bold;
-	}
-	.detector-header button.info:active {
-  		background-color: #eee;
-	}
-	.detector-header .outliers-text {
-		flex: 40;
-		text-align: center;
-		font-style: italic;
-		/* todo: center relative to the page */
-	}
-	.detector-header .right {
-		flex: 30;
-		text-align: right;
-	}
-	.detector-header .schedule {
-		font-style: italic;
-	}
-	.detector-header button.update,
-	.detector-header button.onoff {
-		display: inline-block;
-		background-color: white;
-		border: 1.5px solid black;
-		border-radius: 7px;
-		cursor: pointer;
-		font-size: 1rem;
-		font-weight: 400;
-		margin: 0 5px;
-		padding: 5px 10px;
-		min-width: 3rem;
-		text-align: center;
-		white-space: nowrap;
-		transition: background-color 0.1s ease;
-	}
-	.detector-header button.onoff.off {
-		background-color: #ddd;
-	}
-	.detector-header button.update:hover,
-	.detector-header button.onoff:hover {
-  		box-shadow: 0 0 0px 1px black;
-	}
-	.detector-header button.update:active,
-	.detector-header button.onoff:active {
-  		background-color: #eee;
-	}
-	.detector-header button.hidden {
-		/* todo: apply general .hidden style */
-		display: none;
-	}
-	.detector-header .last-update {
-		font-style: italic;
-		font-size: small;
+
+		.left {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			flex: 30;
+			cursor: pointer;
+		}
+		.left h3 {
+			margin: 0;
+			line-height: 1;
+			display: flex;
+			align-items: center;
+		}
+		.left .info {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 1.2em;
+			min-height: 1.2em;
+			border-radius: 50%;
+			border: 1.5px solid black;
+			background-color: #fff;
+			color: black;
+			font-style: italic;
+			font-weight: normal;
+			font-size: 1em;
+			line-height: 1;
+			cursor: pointer;
+			padding: 0;
+		}
+		button.info:hover {
+			box-shadow: 0 0 0px 1px black;
+			font-weight: bold;
+		}
+		button.info:active {
+			background-color: #eee;
+		}
+		.outliers-text {
+			flex: 40;
+			text-align: center;
+			font-style: italic;
+			min-height: 1em;
+			cursor: pointer;
+			/* todo: center relative to the page */
+		}
+		.right {
+			flex: 30;
+			text-align: right;
+		}
+		.schedule {
+			font-style: italic;
+		}
+		button.update,
+		button.onoff {
+			display: inline-block;
+			background-color: white;
+			border: 1.5px solid black;
+			border-radius: 7px;
+			cursor: pointer;
+			font-size: 1rem;
+			font-weight: 400;
+			margin: 0 5px;
+			padding: 5px 10px;
+			min-width: 3rem;
+			text-align: center;
+			white-space: nowrap;
+			transition: background-color 0.1s ease;
+		}
+		button.onoff.off {
+			background-color: #ddd;
+		}
+		button.update:hover,
+		button.onoff:hover {
+			box-shadow: 0 0 0px 1px black;
+		}
+		button.update:active,
+		button.onoff:active {
+			background-color: #eee;
+		}
+		button.hidden {
+			/* todo: apply general .hidden style */
+			display: none;
+		}
+		.last-update {
+			font-style: italic;
+			font-size: small;
+		}
 	}
 	.plots {
 		display: flex;
@@ -190,6 +206,17 @@ x-detector {
 		font-weight: bold;
 		text-align: center;
 		padding-top: 1rem;
+		align-self: stretch;
+		cursor: pointer;
+	}
+	.dim-title .collapse-fill {
+		color: #00000000;
+		cursor: pointer;
+		min-width: 0.8em;
+		text-align: center;
+		font-size: 1.2em;
+		user-select: none;
+		margin-right: 10px; /*.detector-header.left gap 10px*/
 	}
 	.uplot {
 		width: 100%;
@@ -198,6 +225,7 @@ x-detector {
 	}
 	.uplot-legend {
 		padding-top: 1rem;
+		align-self: stretch;
 	}
 	.detector-info {
 		display: grid;

@@ -64,7 +64,7 @@ class XOutliers extends HTMLElement {
 		for await (const [_, det] of sorted.entries()) {
 			let xd = document.createElement('x-detector');
 			let existing_detector = this.#detectors.querySelector(`#detector${det.Id}`);
-			let {collapsed} = existing_detector ? existing_detector.getDisplayedState() : {collapsed: true};
+			let {collapsed} = existing_detector ? existing_detector.getDisplayedState() : {collapsed: false};
 			await xd.init(det, collapsed);			
 			xdetectors.push(xd);
 		}
@@ -135,7 +135,7 @@ class XLogin extends HTMLElement {
 
 class XDetector extends HTMLElement {
 	detector = null;
-	#collapsed = true;
+	#collapsed = false;
 
 	getDisplayedState() {
 		return {
@@ -143,7 +143,7 @@ class XDetector extends HTMLElement {
 		};
 	}
 
-	async init(detector, collapsed = true) {
+	async init(detector, collapsed) {
 		this.detector = detector;
 		this.#collapsed = collapsed;
 		this.id = `detector${this.detector.Id}`;
@@ -169,17 +169,10 @@ class XDetector extends HTMLElement {
 			this.querySelector('.detector-info').classList.toggle('hidden');
 		};
 
-		this.onmouseenter = () => {
-			this.querySelector('.collapse').style.color = 'black';
-		};
-		this.onmouseleave = () => {
-			this.querySelector('.collapse').style.color = '#00000000';
-		};
-
 		this.onclick = async (e) => {
-			if (e.target.matches('h3.detector-title') || e.target.matches('span.collapse')) {
-				this.showHide();
-			} else if (e.target.closest('div.outliers-text')) {
+			if ((e.target.closest('div.detector-header .left') && !e.target.matches('button.info')) || 
+				e.target.closest('div.outliers-text') || 
+				e.target.closest('div.dim-title')) {
 				this.showHide();
 			}
 		};
@@ -187,11 +180,7 @@ class XDetector extends HTMLElement {
 	
 	unbindEvents() {
 		this.onclick = null;
-		this.onmouseenter = null;
-		this.onmouseleave = null;
 		this.querySelectorAll('button').forEach(btn => btn.onclick = null);
-		//todo: unnecessary?
-		this.querySelectorAll('.u-over').forEach(p => {p.onmouseenter = null; p.onmouseleave = null;});
 	}	
 	
 	async HTML() {
@@ -209,13 +198,13 @@ class XDetector extends HTMLElement {
 		let on_off_btn_text = this.detector.OnOff ? 'On' : 'Off';
 		let on_off_btn_off_class = this.detector.OnOff ? '' : 'off';
 
-		let collapse_btn_text = this.#collapsed ? '+' : '-';
+		let collapse_sign_text = this.#collapsed ? '+' : '-';
 		let plots_hidden = this.#collapsed ? 'hidden' : '';
 
 		let html = `
 		<div class="detector-header">
 			<div class="left">
-				<span class="collapse"><strong>${collapse_btn_text}</strong></span>
+				<span class="collapse-sign"><strong>${collapse_sign_text}</strong></span>
 				<h3 class="detector-title">${escapeHTML(this.detector.Title)}</h3>
 				<button class="info">i</button>
 			</div>
@@ -255,7 +244,7 @@ class XDetector extends HTMLElement {
 			plotWrapper.classList.add("plot-wrapper");
 			const dimLabel = document.createElement("div");
 			dimLabel.classList.add("dim-title");
-			dimLabel.textContent = dim;
+			dimLabel.innerHTML = `<span class="collapse-fill">-</span>${escapeHTML(dim)}`;
 			plotWrapper.appendChild(dimLabel);
 			const plotDiv = document.createElement("div");
 			plotDiv.classList.add("uplot");
@@ -276,7 +265,7 @@ class XDetector extends HTMLElement {
 			const opts = {
 				width: plotDiv.clientWidth,
 				height: 300,
-				//padding: [null, null, null, 50], // top, right, bottom, left 
+				padding: [null, null, null, 50], // top, right, bottom, left 
 				scales: { x: { time: true }, y: { auto: true } },
 				series: [
 					{},
