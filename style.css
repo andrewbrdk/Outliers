@@ -227,6 +227,10 @@ x-detector {
 	.uplot-legend {
 		padding-top: 1rem;
 		align-self: stretch;
+		
+		tr.u-series {
+			text-align: left;
+		}
 	}
 	.detector-info {
 		display: grid;

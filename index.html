@@ -295,7 +295,10 @@ class XDetector extends HTMLElement {
 						legendRows[2].style.display = "none";
 						legendRows[3].style.display = "none";
 						legendRows[4].style.display = "none";
+						legendRows[0].querySelector(".u-marker").style.display = "none";
 						legendRows[1].querySelector(".u-marker").style.display = "none";
+						const legendTable = legendDiv.querySelector("table.u-legend.u-inline");
+						if (legendTable) legendTable.classList.remove("u-inline");
 					},
 					],
 				},
