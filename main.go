@@ -68,6 +68,7 @@ type Detector struct {
 	markedPoints     map[string][]MarkedPoint `toml:"-"`
 	LastUpdate       time.Time                `toml:"-"`
 	hasDims          bool                     `toml:"-"`
+	TimeColumnIsDate bool                     `toml:"-"`
 	TotalOutliers    int                      `toml:"-"`
 	DimsOutliers     map[string]int           `toml:"-"`
 	DimsWithOutliers int                      `toml:"-"`
@@ -489,10 +490,15 @@ func (d *Detector) validateColumns(rows *sql.Rows) error {
 	}
 
 	tsType := colTypes[0].DatabaseTypeName()
-	validTs := tsType == "TIMESTAMP" || tsType == "TIMESTAMPTZ"
+	validTs := tsType == "DATE" || tsType == "TIMESTAMP" || tsType == "TIMESTAMPTZ"
 	if !validTs {
-		errorLog.Printf("Column 't' must be of type timestamp/timestamptz, got '%s'", tsType)
-		return errors.New("Column 't' must be of type timestamp/timestamptz")
+		errorLog.Printf("Column 't' must be of type date/timestamp/timestamptz, got '%s'", tsType)
+		return errors.New("Column 't' must be of type date/timestamp/timestamptz")
+	}
+	if tsType == "DATE" {
+		d.TimeColumnIsDate = true
+	} else {
+		d.TimeColumnIsDate = false
 	}
 
 	if len(cols) == 3 {
@@ -609,6 +615,7 @@ func (d *Detector) writeResults() error {
 		return fmt.Errorf("detector %s: failed to get connection: %v", d.Title, err)
 	}
 
+	//todo: same time type as input?
 	createTableQuery := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			t timestamp,

@@ -24,7 +24,7 @@ common_recipients = [""]
 [[detectors]]
 title = "Wiki Pageviews"
 connection = "main_pg"
-data_sql = "select dt::timestamp as t, views as value from wiki_pageviews where project='en.wikipedia'"
+data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
 backsteps = 90
 detection_method = 'mean10prc'

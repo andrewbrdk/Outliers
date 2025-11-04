@@ -259,8 +259,12 @@ class XDetector extends HTMLElement {
 			const outliers = points.map(p => p.IsOutlier ? p.Value : null);
 			const lower = points.map(p => p.LowerBound);
 			const upper = points.map(p => p.UpperBound);
-
 			const uplotData = [x, y, outliers, lower, upper];
+
+			let time_format = "{YYYY}-{MM}-{DD} {HH}:{mm}";
+			if (this.detector.TimeColumnIsDate) {
+				time_format = "{YYYY}-{MM}-{DD}";
+			}
 
 			const opts = {
 				width: plotDiv.clientWidth,
@@ -268,7 +272,7 @@ class XDetector extends HTMLElement {
 				padding: [null, null, null, 50], // top, right, bottom, left 
 				scales: { x: { time: true }, y: { auto: true } },
 				series: [
-					{},
+					{ value: time_format },
 					{ label: "Value", stroke: "black", width: 2, points: {show: false} },
 					{ label: "Outliers", stroke: "transparent", fill: "transparent", points: {show: true, size: 6, stroke: "red", fill: "red" } },
 					{ label: "Lower Bound", stroke: "black", dash: [20, 5], width: 2, points: {show: false}, band: true },
