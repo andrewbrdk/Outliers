@@ -125,6 +125,7 @@ x-detector {
 			line-height: 1;
 			cursor: pointer;
 			padding: 0;
+			margin-top: 2px; /* align with h3 text */
 		}
 		button.info:hover {
 			box-shadow: 0 0 0px 1px black;
