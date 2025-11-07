@@ -1210,13 +1210,11 @@ func (c PostgresConnection) Close() error {
 }
 
 func resolveEnvVar(s string) string {
+	val := s
 	if strings.HasPrefix(s, "$") {
-		val := os.Getenv(strings.TrimPrefix(s, "$"))
-		if val != "" {
-			return val
-		}
+		val = os.Getenv(strings.TrimPrefix(s, "$"))
 	}
-	return s
+	return val
 }
 
 func combineRecipients(base, extra []string) []string {
