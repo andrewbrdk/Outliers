@@ -126,12 +126,12 @@ type ConnectionConfig struct {
 }
 
 type PostgresConnection struct {
-	Title           string
-	ConnStr         string
-	MaxOpenConns    int
-	MaxIdleConns    int
-	ConnMaxLifetime string
-	DB              *sql.DB
+	title           string
+	connStr         string
+	maxOpenConns    int
+	maxIdleConns    int
+	connMaxLifetime string
+	db              *sql.DB
 }
 
 type Notifier interface {
@@ -151,17 +151,17 @@ type NotificationConfig struct {
 }
 
 type SlackNotification struct {
-	Title      string
-	WebhookURL string
+	title      string
+	webhookURL string
 }
 
 type EmailNotification struct {
-	Title              string
+	title              string
 	SMTPServerWithPort string
-	Username           string
-	Password           string
-	From               string
-	CommonRecipients   []string
+	username           string
+	password           string
+	from               string
+	commonRecipients   []string
 }
 
 type ParsedConfig struct {
@@ -1034,17 +1034,17 @@ func (ot *Outliers) initNotifiers() error {
 		switch n.Type {
 		case "slack":
 			ot.Notifiers[n.Title] = &SlackNotification{
-				Title:      n.Title,
-				WebhookURL: resolveEnvVar(n.WebhookURL),
+				title:      n.Title,
+				webhookURL: resolveEnvVar(n.WebhookURL),
 			}
 		case "email":
 			ot.Notifiers[n.Title] = &EmailNotification{
-				Title:              n.Title,
+				title:              n.Title,
 				SMTPServerWithPort: resolveEnvVar(n.SMTPServerWithPort),
-				Username:           resolveEnvVar(n.Username),
-				Password:           resolveEnvVar(n.Password),
-				From:               resolveEnvVar(n.From),
-				CommonRecipients:   n.CommonRecipients,
+				username:           resolveEnvVar(n.Username),
+				password:           resolveEnvVar(n.Password),
+				from:               resolveEnvVar(n.From),
+				commonRecipients:   n.CommonRecipients,
 			}
 		default:
 			errorLog.Printf("Unknown notifier type '%s' for '%s'\n", n.Type, n.Title)
@@ -1056,12 +1056,12 @@ func (ot *Outliers) initNotifiers() error {
 }
 
 func (s *SlackNotification) Notify(message string, d *Detector) error {
-	if s.WebhookURL == "" {
-		return fmt.Errorf("no Slack webhook configured for %s", s.Title)
+	if s.webhookURL == "" {
+		return fmt.Errorf("no Slack webhook configured for %s", s.title)
 	}
 	payload := map[string]string{"text": message}
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post(s.WebhookURL, "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post(s.webhookURL, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -1074,12 +1074,12 @@ func (s *SlackNotification) Notify(message string, d *Detector) error {
 
 func (e *EmailNotification) Notify(message string, d *Detector) error {
 	if e.SMTPServerWithPort == "" {
-		return fmt.Errorf("no SMTP server configured for %s", e.Title)
+		return fmt.Errorf("no SMTP server configured for %s", e.title)
 	}
 
-	to := combineRecipients(e.CommonRecipients, d.NotifyEmails)
+	to := combineRecipients(e.commonRecipients, d.NotifyEmails)
 	if len(to) == 0 {
-		return fmt.Errorf("no recipients defined for %s", e.Title)
+		return fmt.Errorf("no recipients defined for %s", e.title)
 	}
 
 	host, _, err := net.SplitHostPort(e.SMTPServerWithPort)
@@ -1094,21 +1094,21 @@ func (e *EmailNotification) Notify(message string, d *Detector) error {
 		message,
 	))
 
-	auth := smtp.PlainAuth("", e.Username, e.Password, host)
-	err = smtp.SendMail(e.SMTPServerWithPort, auth, e.From, to, msg)
+	auth := smtp.PlainAuth("", e.username, e.password, host)
+	err = smtp.SendMail(e.SMTPServerWithPort, auth, e.from, to, msg)
 	if err != nil {
 		return fmt.Errorf("failed to send email via %s: %v", e.SMTPServerWithPort, err)
 	}
-	infoLog.Printf("Email sent by '%s' to %v for detector '%s'", e.Title, strings.Join(to, ", "), d.Title)
+	infoLog.Printf("Email sent by '%s' to %v for detector '%s'", e.title, strings.Join(to, ", "), d.Title)
 	return nil
 }
 
 func (n *SlackNotification) GetTitle() string {
-	return n.Title
+	return n.title
 }
 
 func (n *EmailNotification) GetTitle() string {
-	return n.Title
+	return n.title
 }
 
 func (ot *Outliers) initConnections() error {
@@ -1160,12 +1160,12 @@ func (ot *Outliers) initConnections() error {
 		}
 
 		con := PostgresConnection{
-			Title:           c.Title,
-			ConnStr:         resolveEnvVar(c.ConnStr),
-			MaxOpenConns:    c.MaxOpenConns,
-			MaxIdleConns:    c.MaxIdleConns,
-			ConnMaxLifetime: c.ConnMaxLifetime,
-			DB:              db,
+			title:           c.Title,
+			connStr:         resolveEnvVar(c.ConnStr),
+			maxOpenConns:    c.MaxOpenConns,
+			maxIdleConns:    c.MaxIdleConns,
+			connMaxLifetime: c.ConnMaxLifetime,
+			db:              db,
 		}
 
 		ot.Connections[c.Title] = con
@@ -1199,12 +1199,12 @@ func (ot *Outliers) GetDB(connName string) (*sql.DB, error) {
 }
 
 func (c PostgresConnection) GetDB() *sql.DB {
-	return c.DB
+	return c.db
 }
 
 func (c PostgresConnection) Close() error {
-	if c.DB != nil {
-		return c.DB.Close()
+	if c.db != nil {
+		return c.db.Close()
 	}
 	return nil
 }
