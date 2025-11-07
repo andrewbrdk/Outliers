@@ -29,7 +29,8 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-//go:embed index.html style.css uPlot/uPlot.min.css uPlot/uPlot.iife.min.js
+//go:embed index.html style.css
+//go:embed uPlot/uPlot.min.css uPlot/uPlot.iife.min.js
 var embedded embed.FS
 
 var jwtSecretKey []byte
@@ -78,6 +79,18 @@ type Detector struct {
 	NextScheduled    time.Time                `toml:"-"`
 	OnOff            bool                     `toml:"-"`
 	NotifyEmails     []string                 `toml:"notify_emails"`
+}
+
+type DetectorConfig struct {
+	//todo: use Detector struct directly?
+	Title           string   `toml:"title"`
+	ConnectionName  string   `toml:"connection"`
+	DataSQL         string   `toml:"data_sql"`
+	OutputTable     string   `toml:"output"`
+	Backsteps       int      `toml:"backsteps"`
+	DetectionMethod string   `toml:"detection_method"`
+	CronSchedule    string   `toml:"cron_schedule"`
+	NotifyEmails    []string `toml:"notify_emails"`
 }
 
 type Point struct {
@@ -155,7 +168,7 @@ type ParsedConfig struct {
 	//todo: make uniform
 	Connections   []ConnectionConfig   `toml:"connections"`
 	Notifications []NotificationConfig `toml:"notifications"`
-	Detectors     []*Detector          `toml:"detectors"`
+	Detectors     []DetectorConfig     `toml:"detectors"`
 }
 
 func main() {
@@ -211,6 +224,9 @@ func startFSWatcher() {
 		log.Fatal(err)
 	}
 
+	debounceDelay := 300 * time.Millisecond
+	var debounceTimer *time.Timer
+
 	for {
 		select {
 		case event, ok := <-watcher.Events:
@@ -218,17 +234,20 @@ func startFSWatcher() {
 				return
 			}
 			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-				//todo: prevent multiple triggers
-				go func() {
-					time.Sleep(300 * time.Millisecond) //prevents reading incomplete file
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
+				debounceTimer = time.AfterFunc(debounceDelay, func() {
+					infoLog.Println("Config file change detected - reloading.")
 					err := OTL.loadConfFile(CONF.confFile)
 					if err != nil {
 						errorLog.Println("Error loading config:", err)
+						return
 					}
 					OTL.initConnections()
 					OTL.initNotifiers()
 					OTL.initDetectors()
-				}()
+				})
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -257,7 +276,7 @@ func (ot *Outliers) initDetectors() error {
 	defer ot.mu.Unlock()
 	var err error
 
-	confDetectors := make(map[string]*Detector)
+	confDetectors := make(map[string]DetectorConfig)
 	for _, d := range ot.parsedConf.Detectors {
 		err = d.validateConf()
 		if err != nil {
@@ -276,18 +295,29 @@ func (ot *Outliers) initDetectors() error {
 		currentDetectors[d.Title] = d
 	}
 
-	for title, d := range confDetectors {
-		if existing, ok := currentDetectors[title]; ok {
-			if noConfChanges(existing, d) {
-				infoLog.Printf("No changes for detector '%s', skipping reload", d.Title)
+	for title, dconf := range confDetectors {
+		existing, ok := currentDetectors[title]
+		if ok {
+			if noConfChanges(existing, &dconf) {
+				infoLog.Printf("No changes for detector '%s', skipping reload", dconf.Title)
 				continue
 			}
 			ot.cron.Remove(existing.cronID)
 			//todo: stop sqls
 			delete(ot.Detectors, existing.Id)
-			infoLog.Printf("Reloading detector '%s' due to config changes", d.Title)
+			infoLog.Printf("Reloading detector '%s' due to config changes", dconf.Title)
 		} else {
-			infoLog.Printf("Loading new detector '%s'", d.Title)
+			infoLog.Printf("Loading new detector '%s'", dconf.Title)
+		}
+		d := &Detector{
+			Title:           dconf.Title,
+			ConnectionName:  dconf.ConnectionName,
+			DataSQL:         dconf.DataSQL,
+			OutputTable:     dconf.OutputTable,
+			Backsteps:       dconf.Backsteps,
+			DetectionMethod: dconf.DetectionMethod,
+			CronSchedule:    dconf.CronSchedule,
+			NotifyEmails:    dconf.NotifyEmails,
 		}
 		d.Id = ot.counter
 		d.OnOff = false
@@ -310,7 +340,7 @@ func (ot *Outliers) initDetectors() error {
 	return nil
 }
 
-func (d *Detector) validateConf() error {
+func (d *DetectorConfig) validateConf() error {
 	if d.Title == "" {
 		errorLog.Printf("Config missing title")
 		return errors.New("Invalid Config: missing title")
@@ -340,13 +370,31 @@ func (d *Detector) validateConf() error {
 	return nil
 }
 
-func noConfChanges(d1 *Detector, d2 *Detector) bool {
-	return d1.DataSQL == d2.DataSQL &&
-		d1.OutputTable == d2.OutputTable &&
-		d1.Backsteps == d2.Backsteps &&
-		d1.DetectionMethod == d2.DetectionMethod &&
-		d1.CronSchedule == d2.CronSchedule &&
-		d1.ConnectionName == d2.ConnectionName
+func noConfChanges(d *Detector, c *DetectorConfig) bool {
+	if d == nil || c == nil {
+		return false
+	}
+	return d.Title == c.Title &&
+		d.DataSQL == c.DataSQL &&
+		d.OutputTable == c.OutputTable &&
+		d.Backsteps == c.Backsteps &&
+		d.DetectionMethod == c.DetectionMethod &&
+		d.CronSchedule == c.CronSchedule &&
+		d.ConnectionName == c.ConnectionName &&
+		stringSlicesEqual(d.NotifyEmails, c.NotifyEmails)
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	//todo: slices.Equal, go 1.21
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
@@ -1064,7 +1112,13 @@ func (n *EmailNotification) GetTitle() string {
 }
 
 func (ot *Outliers) initConnections() error {
-	ot.CloseAllConnections()
+	err := ot.CloseAllConnections()
+	//todo: don't close if config unchanged
+	//todo: continue on error
+	if err != nil {
+		errorLog.Printf("Error closing connections: %v", err)
+		return err
+	}
 	ot.Connections = make(map[string]Connection)
 
 	for _, c := range ot.parsedConf.Connections {
@@ -1123,17 +1177,17 @@ func (ot *Outliers) initConnections() error {
 }
 
 func (ot *Outliers) CloseAllConnections() error {
-	var firstErr error
+	var err error
 	for k, c := range ot.Connections {
-		if c != nil && c.Close() != nil {
-			if err := c.Close(); err != nil && firstErr == nil {
-				firstErr = err
-			}
-			infoLog.Printf("Closed connection '%s'", k)
+		err = c.Close()
+		if err != nil {
+			errorLog.Printf("Error closing connection '%s': %v", k, err)
+			return err
 		}
+		infoLog.Printf("Closed connection '%s'", k)
 		delete(ot.Connections, k)
 	}
-	return firstErr
+	return err
 }
 
 func (ot *Outliers) GetDB(connName string) (*sql.DB, error) {
