@@ -58,39 +58,41 @@ type Config struct {
 }
 
 type Detector struct {
-	Title            string                   `toml:"title"`
-	Id               int                      `toml:"-"`
-	ConnectionName   string                   `toml:"connection"`
-	DataSQL          string                   `toml:"data_sql"`
-	OutputTable      string                   `toml:"output"`
-	Backsteps        int                      `toml:"backsteps"`
-	DetectionMethod  string                   `toml:"detection_method"`
-	points           map[string][]Point       `toml:"-"`
-	markedPoints     map[string][]MarkedPoint `toml:"-"`
-	LastUpdate       time.Time                `toml:"-"`
-	hasDims          bool                     `toml:"-"`
-	TimeColumnIsDate bool                     `toml:"-"`
-	TotalOutliers    int                      `toml:"-"`
-	DimsOutliers     map[string]int           `toml:"-"`
-	DimsWithOutliers int                      `toml:"-"`
-	CronSchedule     string                   `toml:"cron_schedule"`
-	HCron            string                   `toml:"-"`
-	cronID           cron.EntryID             `toml:"-"`
-	NextScheduled    time.Time                `toml:"-"`
-	OnOff            bool                     `toml:"-"`
-	NotifyEmails     []string                 `toml:"notify_emails"`
+	Title                string                   `toml:"title"`
+	Id                   int                      `toml:"-"`
+	ConnectionName       string                   `toml:"connection"`
+	DataSQL              string                   `toml:"data_sql"`
+	OutputConnectionName string                   `toml:"output_connection"`
+	OutputTable          string                   `toml:"output"`
+	Backsteps            int                      `toml:"backsteps"`
+	DetectionMethod      string                   `toml:"detection_method"`
+	points               map[string][]Point       `toml:"-"`
+	markedPoints         map[string][]MarkedPoint `toml:"-"`
+	LastUpdate           time.Time                `toml:"-"`
+	hasDims              bool                     `toml:"-"`
+	TimeColumnIsDate     bool                     `toml:"-"`
+	TotalOutliers        int                      `toml:"-"`
+	DimsOutliers         map[string]int           `toml:"-"`
+	DimsWithOutliers     int                      `toml:"-"`
+	CronSchedule         string                   `toml:"cron_schedule"`
+	HCron                string                   `toml:"-"`
+	cronID               cron.EntryID             `toml:"-"`
+	NextScheduled        time.Time                `toml:"-"`
+	OnOff                bool                     `toml:"-"`
+	NotifyEmails         []string                 `toml:"notify_emails"`
 }
 
 type DetectorConfig struct {
 	//todo: use Detector struct directly?
-	Title           string   `toml:"title"`
-	ConnectionName  string   `toml:"connection"`
-	DataSQL         string   `toml:"data_sql"`
-	OutputTable     string   `toml:"output"`
-	Backsteps       int      `toml:"backsteps"`
-	DetectionMethod string   `toml:"detection_method"`
-	CronSchedule    string   `toml:"cron_schedule"`
-	NotifyEmails    []string `toml:"notify_emails"`
+	Title                string   `toml:"title"`
+	ConnectionName       string   `toml:"connection"`
+	DataSQL              string   `toml:"data_sql"`
+	OutputConnectionName string   `toml:"output_connection,omitempty"`
+	OutputTable          string   `toml:"output"`
+	Backsteps            int      `toml:"backsteps"`
+	DetectionMethod      string   `toml:"detection_method"`
+	CronSchedule         string   `toml:"cron_schedule"`
+	NotifyEmails         []string `toml:"notify_emails"`
 }
 
 type Point struct {
@@ -309,15 +311,20 @@ func (ot *Outliers) initDetectors() error {
 		} else {
 			infoLog.Printf("Loading new detector '%s'", dconf.Title)
 		}
+
 		d := &Detector{
-			Title:           dconf.Title,
-			ConnectionName:  dconf.ConnectionName,
-			DataSQL:         dconf.DataSQL,
-			OutputTable:     dconf.OutputTable,
-			Backsteps:       dconf.Backsteps,
-			DetectionMethod: dconf.DetectionMethod,
-			CronSchedule:    dconf.CronSchedule,
-			NotifyEmails:    dconf.NotifyEmails,
+			Title:                dconf.Title,
+			ConnectionName:       dconf.ConnectionName,
+			DataSQL:              dconf.DataSQL,
+			OutputTable:          dconf.OutputTable,
+			OutputConnectionName: dconf.OutputConnectionName,
+			Backsteps:            dconf.Backsteps,
+			DetectionMethod:      dconf.DetectionMethod,
+			CronSchedule:         dconf.CronSchedule,
+			NotifyEmails:         dconf.NotifyEmails,
+		}
+		if dconf.OutputConnectionName == "" {
+			d.OutputConnectionName = dconf.ConnectionName
 		}
 		d.Id = ot.counter
 		d.OnOff = false
@@ -381,6 +388,7 @@ func noConfChanges(d *Detector, c *DetectorConfig) bool {
 		d.DetectionMethod == c.DetectionMethod &&
 		d.CronSchedule == c.CronSchedule &&
 		d.ConnectionName == c.ConnectionName &&
+		d.OutputConnectionName == c.OutputConnectionName &&
 		stringSlicesEqual(d.NotifyEmails, c.NotifyEmails)
 }
 
@@ -657,7 +665,7 @@ func (d *Detector) markOutliers() error {
 func (d *Detector) writeResults() error {
 	destTable := d.OutputTable
 
-	db, err := OTL.GetDB(d.ConnectionName)
+	db, err := OTL.GetDB(d.OutputConnectionName)
 	if err != nil {
 		errorLog.Printf("Error getting DB connection: %v", err)
 		return fmt.Errorf("detector %s: failed to get connection: %v", d.Title, err)
@@ -934,7 +942,7 @@ func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db, err := OTL.GetDB(d.ConnectionName)
+	db, err := OTL.GetDB(d.OutputConnectionName)
 	if err != nil {
 		errorLog.Println(err)
 		http.Error(w, "db connection failed", http.StatusInternalServerError)
