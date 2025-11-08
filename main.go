@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -92,6 +93,8 @@ type DetectorConfig struct {
 	OutputTable          string   `toml:"output"`
 	Backsteps            int      `toml:"backsteps"`
 	DetectionMethod      string   `toml:"detection_method"`
+	Percentage           float64  `toml:"percentage"`
+	Threshold            float64  `toml:"threshold"`
 	CronSchedule         string   `toml:"cron_schedule"`
 	NotifyEmails         []string `toml:"notify_emails"`
 }
@@ -328,7 +331,7 @@ func (ot *Outliers) initDetectors() error {
 		if dconf.OutputConnectionName == "" {
 			d.OutputConnectionName = dconf.ConnectionName
 		}
-		d.algorithm, err = newDetectionAlgorithm(d.DetectionMethod, d.Backsteps, 10.0)
+		d.algorithm, err = newDetectionAlgorithm(dconf)
 		d.Id = ot.counter
 		d.OnOff = false
 		ot.Detectors[ot.counter] = d
@@ -1282,15 +1285,19 @@ type DetectionAlgorithm interface {
 	Detect(points []Point) ([]MarkedPoint, error)
 }
 
-func newDetectionAlgorithm(method string, backsteps int, prc float64) (DetectionAlgorithm, error) {
-	switch method {
+func newDetectionAlgorithm(dconf DetectorConfig) (DetectionAlgorithm, error) {
+	switch dconf.DetectionMethod {
 	case "percentage_from_mean":
 		return &percentageFromMeanDetector{
-			backsteps:  backsteps,
-			percentage: prc,
+			backsteps:  dconf.Backsteps,
+			percentage: dconf.Percentage,
+		}, nil
+	case "threshold":
+		return &thresholdDetector{
+			threshold: dconf.Threshold,
 		}, nil
 	default:
-		return nil, fmt.Errorf("unknown detection method: %s", method)
+		return nil, fmt.Errorf("unknown detection method: %s", dconf.DetectionMethod)
 	}
 }
 
@@ -1325,6 +1332,30 @@ func (d *percentageFromMeanDetector) Detect(points []Point) ([]MarkedPoint, erro
 			LowerBound: lower,
 			UpperBound: upper,
 			IsOutlier:  val < lower || val > upper,
+		})
+	}
+	return marked, nil
+}
+
+type thresholdDetector struct {
+	threshold float64
+}
+
+func (d *thresholdDetector) Detect(points []Point) ([]MarkedPoint, error) {
+	if len(points) == 0 {
+		return nil, fmt.Errorf("no points to process")
+	}
+
+	var marked []MarkedPoint
+	for _, p := range points {
+		marked = append(marked, MarkedPoint{
+			T:          p.T,
+			TUnix:      p.TUnix,
+			Dim:        p.Dim,
+			Value:      p.Value,
+			LowerBound: d.threshold,
+			UpperBound: math.Inf(1),
+			IsOutlier:  p.Value < d.threshold,
 		})
 	}
 	return marked, nil

@@ -38,3 +38,14 @@ data_sql = "select dt::timestamp as t, project as dim, views as value from wiki_
 output = "wiki_pageviews_outliers"
 backsteps = 90
 detection_method = 'mean10prc'
+
+
+[[detectors]]
+title = "Wiki Pageviews Thr"
+connection = "main_pg"
+data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
+output = "wiki_pageviews_outliers_2"
+backsteps = 90
+detection_method = 'threshold'
+cron_schedule = "*/5 * * * *"
+notify_emails = [""]
