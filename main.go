@@ -66,6 +66,7 @@ type Detector struct {
 	OutputTable          string                   `toml:"output"`
 	Backsteps            int                      `toml:"backsteps"`
 	DetectionMethod      string                   `toml:"detection_method"`
+	algorithm            DetectionAlgorithm       `toml:"-"`
 	points               map[string][]Point       `toml:"-"`
 	markedPoints         map[string][]MarkedPoint `toml:"-"`
 	LastUpdate           time.Time                `toml:"-"`
@@ -312,6 +313,7 @@ func (ot *Outliers) initDetectors() error {
 			infoLog.Printf("Loading new detector '%s'", dconf.Title)
 		}
 
+		//todo: constructor
 		d := &Detector{
 			Title:                dconf.Title,
 			ConnectionName:       dconf.ConnectionName,
@@ -326,6 +328,7 @@ func (ot *Outliers) initDetectors() error {
 		if dconf.OutputConnectionName == "" {
 			d.OutputConnectionName = dconf.ConnectionName
 		}
+		d.algorithm, err = newDetectionAlgorithm(d.DetectionMethod, d.Backsteps, 10.0)
 		d.Id = ot.counter
 		d.OnOff = false
 		ot.Detectors[ot.counter] = d
@@ -603,10 +606,6 @@ func (d *Detector) markOutliers() error {
 		errorLog.Printf("No data")
 		return errors.New("No data")
 	}
-	if d.DetectionMethod != "mean10prc" {
-		errorLog.Printf("Unsupported detection method: %s", d.DetectionMethod)
-		return errors.New("Unsupported detection method: " + d.DetectionMethod)
-	}
 
 	d.markedPoints = make(map[string][]MarkedPoint)
 	d.TotalOutliers = 0
@@ -614,39 +613,19 @@ func (d *Detector) markOutliers() error {
 	d.DimsWithOutliers = 0
 
 	for dim, pts := range d.points {
-		var dimMarked []MarkedPoint
+		marked, err := d.algorithm.Detect(pts)
+		if err != nil {
+			return fmt.Errorf("detection failed for dim %s: %v", dim, err)
+		}
+
 		outlierCount := 0
-
-		for i := 0; i < d.Backsteps; i++ {
-			pi := len(pts) - d.Backsteps + i
-			sum := 0.0
-			for j := 0; j < pi; j++ {
-				sum += pts[j].Value
-			}
-
-			mean := sum / float64(pi)
-			lower := mean * 0.9
-			upper := mean * 1.1
-			val := pts[pi].Value
-
-			mp := MarkedPoint{
-				T:          pts[pi].T,
-				TUnix:      pts[pi].TUnix,
-				Dim:        dim,
-				Value:      val,
-				LowerBound: lower,
-				UpperBound: upper,
-				IsOutlier:  val < lower || val > upper,
-			}
-
+		for _, mp := range marked {
 			if mp.IsOutlier {
 				outlierCount++
 			}
-
-			dimMarked = append(dimMarked, mp)
 		}
 
-		d.markedPoints[dim] = dimMarked
+		d.markedPoints[dim] = marked
 		d.TotalOutliers += outlierCount
 		d.DimsOutliers[dim] = outlierCount
 		if outlierCount > 0 {
@@ -1297,4 +1276,56 @@ func httpEvents(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "data: %s\n\n", msg)
 		flusher.Flush()
 	}
+}
+
+type DetectionAlgorithm interface {
+	Detect(points []Point) ([]MarkedPoint, error)
+}
+
+func newDetectionAlgorithm(method string, backsteps int, prc float64) (DetectionAlgorithm, error) {
+	switch method {
+	case "percentage_from_mean":
+		return &percentageFromMeanDetector{
+			backsteps:  backsteps,
+			percentage: prc,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown detection method: %s", method)
+	}
+}
+
+type percentageFromMeanDetector struct {
+	backsteps  int
+	percentage float64
+}
+
+func (d *percentageFromMeanDetector) Detect(points []Point) ([]MarkedPoint, error) {
+	if len(points) < d.backsteps {
+		return nil, fmt.Errorf("insufficient points: got %d, need %d", len(points), d.backsteps)
+	}
+
+	var marked []MarkedPoint
+	for i := 0; i < d.backsteps; i++ {
+		pi := len(points) - d.backsteps + i
+
+		sum := 0.0
+		for j := 0; j < pi; j++ {
+			sum += points[j].Value
+		}
+		mean := sum / float64(pi)
+		lower := mean * (1 - d.percentage)
+		upper := mean * (1 + d.percentage)
+		val := points[pi].Value
+
+		marked = append(marked, MarkedPoint{
+			T:          points[pi].T,
+			TUnix:      points[pi].TUnix,
+			Dim:        points[pi].Dim,
+			Value:      val,
+			LowerBound: lower,
+			UpperBound: upper,
+			IsOutlier:  val < lower || val > upper,
+		})
+	}
+	return marked, nil
 }
