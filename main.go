@@ -92,11 +92,18 @@ type DetectorConfig struct {
 	OutputConnectionName string   `toml:"output_connection,omitempty"`
 	OutputTable          string   `toml:"output"`
 	Backsteps            int      `toml:"backsteps"`
-	DetectionMethod      string   `toml:"detection_method"`
-	Percentage           float64  `toml:"percentage"`
-	Threshold            float64  `toml:"threshold"`
 	CronSchedule         string   `toml:"cron_schedule"`
 	NotifyEmails         []string `toml:"notify_emails"`
+	DetectionMethod      string   `toml:"detection_method"`
+	Percent              *float64 `toml:"percent"`
+	Threshold            *float64 `toml:"threshold"`
+}
+
+type DetectionAlgorithm struct {
+	DetectionMethod string   `toml:"detection_method"`
+	Backsteps       int      `toml:"backsteps"`
+	Percent         *float64 `toml:"percent"`
+	Threshold       *float64 `toml:"threshold"`
 }
 
 type Point struct {
@@ -286,7 +293,7 @@ func (ot *Outliers) initDetectors() error {
 	for _, d := range ot.parsedConf.Detectors {
 		err = d.validateConf()
 		if err != nil {
-			errorLog.Printf("Skipping invalid config in %s: %v", d.Title, err)
+			errorLog.Printf("Skipping invalid detector config %s", d.Title)
 			continue
 		}
 		confDetectors[d.Title] = d
@@ -316,24 +323,7 @@ func (ot *Outliers) initDetectors() error {
 			infoLog.Printf("Loading new detector '%s'", dconf.Title)
 		}
 
-		//todo: constructor
-		d := &Detector{
-			Title:                dconf.Title,
-			ConnectionName:       dconf.ConnectionName,
-			DataSQL:              dconf.DataSQL,
-			OutputTable:          dconf.OutputTable,
-			OutputConnectionName: dconf.OutputConnectionName,
-			Backsteps:            dconf.Backsteps,
-			DetectionMethod:      dconf.DetectionMethod,
-			CronSchedule:         dconf.CronSchedule,
-			NotifyEmails:         dconf.NotifyEmails,
-		}
-		if dconf.OutputConnectionName == "" {
-			d.OutputConnectionName = dconf.ConnectionName
-		}
-		d.algorithm, err = newDetectionAlgorithm(dconf)
-		d.Id = ot.counter
-		d.OnOff = false
+		d := newDetector(&dconf, ot.counter)
 		ot.Detectors[ot.counter] = d
 		if d.CronSchedule != "" {
 			ot.scheduleDetectorUpdate(d)
@@ -380,13 +370,69 @@ func (d *DetectorConfig) validateConf() error {
 		errorLog.Printf("Invalid backsteps: %d", d.Backsteps)
 		return fmt.Errorf("invalid backsteps: %d", d.Backsteps)
 	}
+	err := d.validateDetectionAlgorithmConf()
+	if err != nil {
+		errorLog.Printf("Invalid detection method config in %s: %v", d.Title, err)
+		return err
+	}
 	return nil
+}
+
+func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
+	switch strings.ToLower(d.DetectionMethod) {
+	case "dist_from_mean":
+		if d.Percent == nil {
+			return fmt.Errorf("'percent' must be specified for 'dist_from_mean' detection method")
+		}
+		if *d.Percent <= 0 || *d.Percent >= 100 {
+			infoLog.Printf("Warning: 'percent=%f' not in range [0, 100]", *d.Percent)
+		}
+	case "threshold":
+		if d.Threshold == nil {
+			return fmt.Errorf("'threshold' must be specified for 'threshold' detection method")
+		}
+	default:
+		return fmt.Errorf("unknown detection method: %s", d.DetectionMethod)
+	}
+	return nil
+}
+
+func newDetector(dconf *DetectorConfig, id int) *Detector {
+	d := &Detector{
+		Title:                dconf.Title,
+		ConnectionName:       dconf.ConnectionName,
+		DataSQL:              dconf.DataSQL,
+		OutputTable:          dconf.OutputTable,
+		OutputConnectionName: dconf.OutputConnectionName,
+		Backsteps:            dconf.Backsteps,
+		DetectionMethod:      dconf.DetectionMethod,
+		CronSchedule:         dconf.CronSchedule,
+		NotifyEmails:         dconf.NotifyEmails,
+	}
+	if dconf.OutputConnectionName == "" {
+		d.OutputConnectionName = dconf.ConnectionName
+	}
+	d.algorithm = newDetectionAlgorithm(dconf)
+	d.Id = id
+	d.OnOff = false
+	return d
+}
+
+func newDetectionAlgorithm(dconf *DetectorConfig) DetectionAlgorithm {
+	da := DetectionAlgorithm{
+		DetectionMethod: dconf.DetectionMethod,
+		Backsteps:       dconf.Backsteps,
+		Percent:         dconf.Percent,
+		Threshold:       dconf.Threshold,
+	}
+	return da
 }
 
 func noConfChanges(d *Detector, c *DetectorConfig) bool {
 	if d == nil || c == nil {
 		return false
 	}
+	//todo: compare detection algorithm params
 	return d.Title == c.Title &&
 		d.DataSQL == c.DataSQL &&
 		d.OutputTable == c.OutputTable &&
@@ -634,7 +680,11 @@ func (d *Detector) markOutliers() error {
 		if outlierCount > 0 {
 			d.DimsWithOutliers++
 		}
-		infoLog.Printf("Dim=%s: detected %d outliers in last %d points", dim, outlierCount, d.Backsteps)
+		if d.hasDims {
+			infoLog.Printf("Dim='%s': detected %d outliers in last %d points", dim, outlierCount, d.Backsteps)
+		} else {
+			infoLog.Printf("Detected %d outliers in last %d points", outlierCount, d.Backsteps)
+		}
 	}
 	d.LastUpdate = time.Now()
 	infoLog.Printf(
@@ -642,6 +692,53 @@ func (d *Detector) markOutliers() error {
 		d.Title, d.TotalOutliers, d.DetectionMethod,
 	)
 	return nil
+}
+
+func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
+	if len(points) == 0 {
+		return nil, errors.New("No data points to detect outliers")
+	}
+
+	//todo: interface
+	//todo: safe deref *da.Threshold, *da.Percent
+	var marked []MarkedPoint
+	if da.DetectionMethod == "threshold" {
+		for _, p := range points {
+			marked = append(marked, MarkedPoint{
+				T:          p.T,
+				TUnix:      p.TUnix,
+				Dim:        p.Dim,
+				Value:      p.Value,
+				LowerBound: *da.Threshold,
+				UpperBound: math.Inf(1),
+				IsOutlier:  p.Value < *da.Threshold,
+			})
+		}
+	} else if da.DetectionMethod == "dist_from_mean" {
+		for i := 0; i < da.Backsteps; i++ {
+			pi := len(points) - da.Backsteps + i
+
+			sum := 0.0
+			for j := 0; j < pi; j++ {
+				sum += points[j].Value
+			}
+			mean := sum / float64(pi)
+			lower := mean * (1 - *da.Percent/100)
+			upper := mean * (1 + *da.Percent/100)
+			val := points[pi].Value
+
+			marked = append(marked, MarkedPoint{
+				T:          points[pi].T,
+				TUnix:      points[pi].TUnix,
+				Dim:        points[pi].Dim,
+				Value:      val,
+				LowerBound: lower,
+				UpperBound: upper,
+				IsOutlier:  val < lower || val > upper,
+			})
+		}
+	}
+	return marked, nil
 }
 
 func (d *Detector) writeResults() error {
@@ -1279,84 +1376,4 @@ func httpEvents(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "data: %s\n\n", msg)
 		flusher.Flush()
 	}
-}
-
-type DetectionAlgorithm interface {
-	Detect(points []Point) ([]MarkedPoint, error)
-}
-
-func newDetectionAlgorithm(dconf DetectorConfig) (DetectionAlgorithm, error) {
-	switch dconf.DetectionMethod {
-	case "percentage_from_mean":
-		return &percentageFromMeanDetector{
-			backsteps:  dconf.Backsteps,
-			percentage: dconf.Percentage,
-		}, nil
-	case "threshold":
-		return &thresholdDetector{
-			threshold: dconf.Threshold,
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown detection method: %s", dconf.DetectionMethod)
-	}
-}
-
-type percentageFromMeanDetector struct {
-	backsteps  int
-	percentage float64
-}
-
-func (d *percentageFromMeanDetector) Detect(points []Point) ([]MarkedPoint, error) {
-	if len(points) < d.backsteps {
-		return nil, fmt.Errorf("insufficient points: got %d, need %d", len(points), d.backsteps)
-	}
-
-	var marked []MarkedPoint
-	for i := 0; i < d.backsteps; i++ {
-		pi := len(points) - d.backsteps + i
-
-		sum := 0.0
-		for j := 0; j < pi; j++ {
-			sum += points[j].Value
-		}
-		mean := sum / float64(pi)
-		lower := mean * (1 - d.percentage)
-		upper := mean * (1 + d.percentage)
-		val := points[pi].Value
-
-		marked = append(marked, MarkedPoint{
-			T:          points[pi].T,
-			TUnix:      points[pi].TUnix,
-			Dim:        points[pi].Dim,
-			Value:      val,
-			LowerBound: lower,
-			UpperBound: upper,
-			IsOutlier:  val < lower || val > upper,
-		})
-	}
-	return marked, nil
-}
-
-type thresholdDetector struct {
-	threshold float64
-}
-
-func (d *thresholdDetector) Detect(points []Point) ([]MarkedPoint, error) {
-	if len(points) == 0 {
-		return nil, fmt.Errorf("no points to process")
-	}
-
-	var marked []MarkedPoint
-	for _, p := range points {
-		marked = append(marked, MarkedPoint{
-			T:          p.T,
-			TUnix:      p.TUnix,
-			Dim:        p.Dim,
-			Value:      p.Value,
-			LowerBound: d.threshold,
-			UpperBound: math.Inf(1),
-			IsOutlier:  p.Value < d.threshold,
-		})
-	}
-	return marked, nil
 }
