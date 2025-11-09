@@ -27,9 +27,23 @@ connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
 backsteps = 90
-detection_method = 'mean10prc'
 cron_schedule = "*/5 * * * *"
 notify_emails = [""]
+detection_method = 'dist_from_mean'
+percent = 10
+avg_window = 30
+
+[[detectors]]
+title = "Wiki Pageviews Stddev"
+connection = "main_pg"
+data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
+output = "wiki_pageviews_outliers"
+backsteps = 90
+cron_schedule = "*/5 * * * *"
+notify_emails = [""]
+detection_method = 'dist_from_mean'
+sigma = 3
+avg_window = 30
 
 [[detectors]]
 title = "Wiki Pageviews Projects"
@@ -37,15 +51,17 @@ connection = "main_pg"
 data_sql = "select dt::timestamp as t, project as dim, views as value from wiki_pageviews"
 output = "wiki_pageviews_outliers"
 backsteps = 90
-detection_method = 'mean10prc'
-
+detection_method = 'dist_from_mean'
+percent = 20
+avg_window = 30
 
 [[detectors]]
-title = "Wiki Pageviews Thr"
+title = "Wiki Pageviews Threshold"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
-output = "wiki_pageviews_outliers_2"
+output = "wiki_pageviews_outliers"
 backsteps = 90
-detection_method = 'threshold'
 cron_schedule = "*/5 * * * *"
 notify_emails = [""]
+detection_method = 'threshold'
+threshold = 220000000

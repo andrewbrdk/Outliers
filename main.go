@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -84,7 +85,6 @@ type Detector struct {
 }
 
 type DetectorConfig struct {
-	//todo: use Detector struct directly?
 	Title                string   `toml:"title"`
 	ConnectionName       string   `toml:"connection"`
 	DataSQL              string   `toml:"data_sql"`
@@ -94,15 +94,23 @@ type DetectorConfig struct {
 	CronSchedule         string   `toml:"cron_schedule"`
 	NotifyEmails         []string `toml:"notify_emails"`
 	DetectionMethod      string   `toml:"detection_method"`
-	Percent              *float64 `toml:"percent"`
-	Threshold            *float64 `toml:"threshold"`
+	// threshold
+	Threshold *float64 `toml:"threshold"`
+	// dist_from_mean
+	AveragingWindow *int     `toml:"avg_window"`
+	Percent         *float64 `toml:"percent"`
+	Sigma           *float64 `toml:"sigma"`
 }
 
 type DetectionAlgorithm struct {
-	DetectionMethod string   `toml:"detection_method"`
-	Backsteps       int      `toml:"backsteps"`
+	DetectionMethod string `toml:"detection_method"`
+	Backsteps       int    `toml:"backsteps"`
+	// threshold
+	Threshold *float64 `toml:"threshold"`
+	// dist_from_mean
+	AveragingWindow int
 	Percent         *float64 `toml:"percent"`
-	Threshold       *float64 `toml:"threshold"`
+	Sigma           *float64
 }
 
 type Point struct {
@@ -177,7 +185,6 @@ type EmailNotification struct {
 }
 
 type ParsedConfig struct {
-	//todo: make uniform
 	Connections   []ConnectionConfig   `toml:"connections"`
 	Notifications []NotificationConfig `toml:"notifications"`
 	Detectors     []DetectorConfig     `toml:"detectors"`
@@ -380,11 +387,23 @@ func (d *DetectorConfig) validateConf() error {
 func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
 	switch strings.ToLower(d.DetectionMethod) {
 	case "dist_from_mean":
-		if d.Percent == nil {
-			return fmt.Errorf("'percent' must be specified for 'dist_from_mean' detection method")
+		if d.Percent == nil && d.Sigma == nil {
+			return fmt.Errorf("either 'percent' or 'sigma' must be specified for 'dist_from_mean' detection method")
 		}
-		if *d.Percent <= 0 || *d.Percent >= 100 {
-			infoLog.Printf("Warning: 'percent=%f' not in range [0, 100]", *d.Percent)
+		if d.Percent != nil && d.Sigma != nil {
+			return fmt.Errorf("cannot specify both 'percent' and 'sigma' for 'dist_from_mean' detection method")
+		}
+		if d.Percent != nil && (*d.Percent <= 0 || *d.Percent >= 100) {
+			infoLog.Printf("Warning: 'percent=%f' not in range (0, 100)", *d.Percent)
+		}
+		if d.Sigma != nil && *d.Sigma <= 0 {
+			return fmt.Errorf("'sigma' must be positive, got %f", *d.Sigma)
+		}
+		if d.AveragingWindow == nil {
+			return fmt.Errorf("'window' must be specified for 'dist_from_mean' detection method")
+		}
+		if d.AveragingWindow != nil && *d.AveragingWindow <= 0 {
+			return fmt.Errorf("'window' must be positive, got %d", *d.AveragingWindow)
 		}
 	case "threshold":
 		if d.Threshold == nil {
@@ -418,11 +437,18 @@ func newDetector(dconf *DetectorConfig, id int) *Detector {
 }
 
 func newDetectionAlgorithm(dconf *DetectorConfig) DetectionAlgorithm {
+	var window int
+	if dconf.AveragingWindow != nil {
+		window = *dconf.AveragingWindow
+	}
+
 	da := DetectionAlgorithm{
 		DetectionMethod: dconf.DetectionMethod,
 		Backsteps:       dconf.Backsteps,
-		Percent:         dconf.Percent,
 		Threshold:       dconf.Threshold,
+		AveragingWindow: window,
+		Percent:         dconf.Percent,
+		Sigma:           dconf.Sigma,
 	}
 	return da
 }
@@ -713,22 +739,42 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 			})
 		}
 	} else if da.DetectionMethod == "dist_from_mean" {
-		for i := 0; i < da.Backsteps; i++ {
-			pi := len(points) - da.Backsteps + i
-
-			sum := 0.0
-			for j := 0; j < pi; j++ {
-				sum += points[j].Value
+		for i := range points {
+			windowStart := i - da.AveragingWindow
+			if windowStart < 0 {
+				//todo: don't print for each point
+				infoLog.Printf("Not enough history to compute averaging window for a point %s, skipping", points[i].T)
+				continue
 			}
-			mean := sum / float64(pi)
-			lower := mean * (1 - *da.Percent/100)
-			upper := mean * (1 + *da.Percent/100)
-			val := points[pi].Value
 
+			//todo: reuse prev. point sum
+			sum, sumSq := 0.0, 0.0
+			count := 0
+			for j := windowStart; j < i; j++ {
+				val := points[j].Value
+				sum += val
+				sumSq += val * val
+				count++
+			}
+			mean := sum / float64(count)
+
+			var lower, upper float64
+			if da.Percent != nil {
+				delta := mean * (*da.Percent / 100.0)
+				lower = mean - delta
+				upper = mean + delta
+			} else if da.Sigma != nil {
+				variance := (sumSq / float64(count)) - (mean * mean)
+				stdDev := math.Sqrt(variance)
+				lower = mean - (*da.Sigma * stdDev)
+				upper = mean + (*da.Sigma * stdDev)
+			}
+
+			val := points[i].Value
 			marked = append(marked, MarkedPoint{
-				T:          points[pi].T,
-				TUnix:      points[pi].TUnix,
-				Dim:        points[pi].Dim,
+				T:          points[i].T,
+				TUnix:      points[i].TUnix,
+				Dim:        points[i].Dim,
 				Value:      val,
 				LowerBound: sql.NullFloat64{Float64: lower, Valid: true},
 				UpperBound: sql.NullFloat64{Float64: upper, Valid: true},
