@@ -95,7 +95,8 @@ type DetectorConfig struct {
 	NotifyEmails         []string `toml:"notify_emails"`
 	DetectionMethod      string   `toml:"detection_method"`
 	// threshold
-	Threshold *float64 `toml:"threshold"`
+	Lower *float64 `toml:"lower"`
+	Upper *float64 `toml:"upper"`
 	// dist_from_mean
 	AveragingWindow *int     `toml:"avg_window"`
 	Percent         *float64 `toml:"percent"`
@@ -103,14 +104,15 @@ type DetectorConfig struct {
 }
 
 type DetectionAlgorithm struct {
-	DetectionMethod string `toml:"detection_method"`
-	Backsteps       int    `toml:"backsteps"`
+	detectionMethod string
+	backsteps       int
 	// threshold
-	Threshold *float64 `toml:"threshold"`
+	lower *float64
+	upper *float64
 	// dist_from_mean
-	AveragingWindow int
-	Percent         *float64 `toml:"percent"`
-	Sigma           *float64
+	averagingWindow int
+	percent         *float64
+	sigma           *float64
 }
 
 type Point struct {
@@ -406,8 +408,11 @@ func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
 			return fmt.Errorf("'window' must be positive, got %d", *d.AveragingWindow)
 		}
 	case "threshold":
-		if d.Threshold == nil {
-			return fmt.Errorf("'threshold' must be specified for 'threshold' detection method")
+		if d.Lower == nil && d.Upper == nil {
+			return fmt.Errorf("at least one of 'lower' or 'upper' boundaries must be specified")
+		}
+		if d.Lower != nil && d.Upper != nil && *d.Lower >= *d.Upper {
+			infoLog.Printf("Warning: 'lower' boundary is greater than 'upper'")
 		}
 	default:
 		return fmt.Errorf("unknown detection method: %s", d.DetectionMethod)
@@ -443,12 +448,13 @@ func newDetectionAlgorithm(dconf *DetectorConfig) DetectionAlgorithm {
 	}
 
 	da := DetectionAlgorithm{
-		DetectionMethod: dconf.DetectionMethod,
-		Backsteps:       dconf.Backsteps,
-		Threshold:       dconf.Threshold,
-		AveragingWindow: window,
-		Percent:         dconf.Percent,
-		Sigma:           dconf.Sigma,
+		detectionMethod: dconf.DetectionMethod,
+		backsteps:       dconf.Backsteps,
+		lower:           dconf.Lower,
+		upper:           dconf.Upper,
+		averagingWindow: window,
+		percent:         dconf.Percent,
+		sigma:           dconf.Sigma,
 	}
 	return da
 }
@@ -726,21 +732,31 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 	//todo: interface
 	//todo: safe deref *da.Threshold, *da.Percent
 	var marked []MarkedPoint
-	if da.DetectionMethod == "threshold" {
+	if da.detectionMethod == "threshold" {
 		for _, p := range points {
+			lower := sql.NullFloat64{Valid: da.lower != nil}
+			if lower.Valid {
+				lower.Float64 = *da.lower
+			}
+			upper := sql.NullFloat64{Valid: da.upper != nil}
+			if upper.Valid {
+				upper.Float64 = *da.upper
+			}
+			isOutlier := (lower.Valid && p.Value < lower.Float64) ||
+				(upper.Valid && p.Value > upper.Float64)
 			marked = append(marked, MarkedPoint{
 				T:          p.T,
 				TUnix:      p.TUnix,
 				Dim:        p.Dim,
 				Value:      p.Value,
-				LowerBound: sql.NullFloat64{Float64: *da.Threshold, Valid: true},
-				UpperBound: sql.NullFloat64{Valid: false},
-				IsOutlier:  p.Value < *da.Threshold,
+				LowerBound: lower,
+				UpperBound: upper,
+				IsOutlier:  isOutlier,
 			})
 		}
-	} else if da.DetectionMethod == "dist_from_mean" {
+	} else if da.detectionMethod == "dist_from_mean" {
 		for i := range points {
-			windowStart := i - da.AveragingWindow
+			windowStart := i - da.averagingWindow
 			if windowStart < 0 {
 				//todo: don't print for each point
 				infoLog.Printf("Not enough history to compute averaging window for a point %s, skipping", points[i].T)
@@ -759,15 +775,15 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 			mean := sum / float64(count)
 
 			var lower, upper float64
-			if da.Percent != nil {
-				delta := mean * (*da.Percent / 100.0)
+			if da.percent != nil {
+				delta := mean * (*da.percent / 100.0)
 				lower = mean - delta
 				upper = mean + delta
-			} else if da.Sigma != nil {
+			} else if da.sigma != nil {
 				variance := (sumSq / float64(count)) - (mean * mean)
 				stdDev := math.Sqrt(variance)
-				lower = mean - (*da.Sigma * stdDev)
-				upper = mean + (*da.Sigma * stdDev)
+				lower = mean - (*da.sigma * stdDev)
+				upper = mean + (*da.sigma * stdDev)
 			}
 
 			val := points[i].Value

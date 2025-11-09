@@ -64,4 +64,4 @@ backsteps = 90
 cron_schedule = "*/5 * * * *"
 notify_emails = [""]
 detection_method = 'threshold'
-threshold = 220000000
+lower = 220000000

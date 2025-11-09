@@ -186,7 +186,7 @@ class XDetector extends HTMLElement {
 	async HTML() {
 		let outliers_text = '';
 		if (this.detector.TotalOutliers > 0) {
-			outliers_text = `${this.detector.TotalOutliers} new outliers`;
+			outliers_text = `${this.detector.TotalOutliers} outliers`;
 			if (this.detector.DimsWithOutliers > 1) {
 				outliers_text += ` in ${this.detector.DimsWithOutliers} series`;
 			}
