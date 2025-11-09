@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -115,13 +114,13 @@ type Point struct {
 }
 
 type MarkedPoint struct {
-	T          time.Time `json:"-"`
-	TUnix      int64     `json:"T"`
-	Dim        string    `json:"Dim"`
-	Value      float64   `json:"Value"`
-	IsOutlier  bool      `json:"IsOutlier"`
-	LowerBound float64   `json:"LowerBound"`
-	UpperBound float64   `json:"UpperBound"`
+	T          time.Time       `json:"-"`
+	TUnix      int64           `json:"T"`
+	Dim        string          `json:"Dim"`
+	Value      float64         `json:"Value"`
+	IsOutlier  bool            `json:"IsOutlier"`
+	LowerBound sql.NullFloat64 `json:"LowerBound"`
+	UpperBound sql.NullFloat64 `json:"UpperBound"`
 }
 
 type Connection interface {
@@ -698,7 +697,6 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 	if len(points) == 0 {
 		return nil, errors.New("No data points to detect outliers")
 	}
-
 	//todo: interface
 	//todo: safe deref *da.Threshold, *da.Percent
 	var marked []MarkedPoint
@@ -709,8 +707,8 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 				TUnix:      p.TUnix,
 				Dim:        p.Dim,
 				Value:      p.Value,
-				LowerBound: *da.Threshold,
-				UpperBound: math.Inf(1),
+				LowerBound: sql.NullFloat64{Float64: *da.Threshold, Valid: true},
+				UpperBound: sql.NullFloat64{Valid: false},
 				IsOutlier:  p.Value < *da.Threshold,
 			})
 		}
@@ -732,8 +730,8 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 				TUnix:      points[pi].TUnix,
 				Dim:        points[pi].Dim,
 				Value:      val,
-				LowerBound: lower,
-				UpperBound: upper,
+				LowerBound: sql.NullFloat64{Float64: lower, Valid: true},
+				UpperBound: sql.NullFloat64{Float64: upper, Valid: true},
 				IsOutlier:  val < lower || val > upper,
 			})
 		}
@@ -754,6 +752,7 @@ func (d *Detector) writeResults() error {
 	createTableQuery := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			t timestamp,
+			detector text,
 			dim text,
 			value numeric,
 			is_outlier boolean,
@@ -761,12 +760,12 @@ func (d *Detector) writeResults() error {
 			upper_bound numeric,
 			method text,
 			last_update timestamp,
-			detector text,
 			PRIMARY KEY (t, detector, dim)
 		);
 		CREATE INDEX IF NOT EXISTS idx_%[1]s_t ON %[1]s (t);
 		CREATE INDEX IF NOT EXISTS idx_%[1]s_detector ON %[1]s (detector);
-		CREATE INDEX IF NOT EXISTS idx_%[1]s_dim ON %[1]s (dim);`, destTable)
+		CREATE INDEX IF NOT EXISTS idx_%[1]s_dim ON %[1]s (dim);
+		CREATE INDEX IF NOT EXISTS idx_%[1]s_outlier ON %[1]s (is_outlier);`, destTable)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
@@ -778,7 +777,7 @@ func (d *Detector) writeResults() error {
 
 	upsertQuery := fmt.Sprintf(`
 		INSERT INTO %s (
-			t, dim, value, is_outlier, lower_bound, upper_bound, method, last_update, detector
+			t, detector, dim, value, is_outlier, lower_bound, upper_bound, method, last_update
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (t, detector, dim)
@@ -801,9 +800,9 @@ func (d *Detector) writeResults() error {
 		for _, mp := range mps {
 			_, err := stmt.ExecContext(
 				ctx,
-				mp.T, dim, mp.Value,
+				mp.T, d.Title, dim, mp.Value,
 				mp.IsOutlier, mp.LowerBound, mp.UpperBound,
-				d.DetectionMethod, d.LastUpdate, d.Title)
+				d.DetectionMethod, d.LastUpdate)
 			if err != nil {
 				errorLog.Printf("Error inserting dim=%s t=%v: %v", dim, mp.T, err)
 				return err
@@ -1116,6 +1115,7 @@ func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
 func (ot *Outliers) initNotifiers() error {
 	ot.Notifiers = make(map[string]Notifier)
 
+	//todo: validate config
 	for _, n := range ot.parsedConf.Notifications {
 		//todo: warning on overwrite
 		switch n.Type {

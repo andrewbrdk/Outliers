@@ -258,8 +258,8 @@ class XDetector extends HTMLElement {
 			const x = points.map(p => p.T);
 			const y = points.map(p => p.Value);
 			const outliers = points.map(p => p.IsOutlier ? p.Value : null);
-			const lower = points.map(p => p.LowerBound);
-			const upper = points.map(p => p.UpperBound);
+			const lower = points.map(p => p.LowerBound.Valid ? p.LowerBound.Float64 : null);
+			const upper = points.map(p => p.UpperBound.Valid ? p.UpperBound.Float64 : null);
 			const uplotData = [x, y, outliers, lower, upper];
 
 			let time_format = "{YYYY}-{MM}-{DD} {HH}:{mm}";
