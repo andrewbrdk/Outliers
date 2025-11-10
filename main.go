@@ -101,6 +101,7 @@ type DetectorConfig struct {
 	AveragingWindow *int     `toml:"avg_window"`
 	Percent         *float64 `toml:"percent"`
 	Sigma           *float64 `toml:"sigma"`
+	Period          *int     `toml:"period"`
 }
 
 type DetectionAlgorithm struct {
@@ -113,6 +114,7 @@ type DetectionAlgorithm struct {
 	averagingWindow int
 	percent         *float64
 	sigma           *float64
+	period          int
 }
 
 type Point struct {
@@ -407,6 +409,12 @@ func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
 		if d.AveragingWindow != nil && *d.AveragingWindow <= 0 {
 			return fmt.Errorf("'window' must be positive, got %d", *d.AveragingWindow)
 		}
+		if d.Period != nil && *d.Period <= 0 {
+			return fmt.Errorf("'period' must be positive if specified, got %d", *d.Period)
+		}
+		if d.Period != nil && *d.Period > *d.AveragingWindow {
+			return fmt.Errorf("'period' %d must be less than 'window' %d", *d.Period, *d.AveragingWindow)
+		}
 	case "threshold":
 		if d.Lower == nil && d.Upper == nil {
 			return fmt.Errorf("at least one of 'lower' or 'upper' boundaries must be specified")
@@ -447,6 +455,11 @@ func newDetectionAlgorithm(dconf *DetectorConfig) DetectionAlgorithm {
 		window = *dconf.AveragingWindow
 	}
 
+	period := 1
+	if dconf.Period != nil && *dconf.Period >= 1 {
+		period = *dconf.Period
+	}
+
 	da := DetectionAlgorithm{
 		detectionMethod: dconf.DetectionMethod,
 		backsteps:       dconf.Backsteps,
@@ -455,6 +468,7 @@ func newDetectionAlgorithm(dconf *DetectorConfig) DetectionAlgorithm {
 		averagingWindow: window,
 		percent:         dconf.Percent,
 		sigma:           dconf.Sigma,
+		period:          period,
 	}
 	return da
 }
@@ -756,8 +770,7 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 		}
 	} else if da.detectionMethod == "dist_from_mean" {
 		for i := range points {
-			windowStart := i - da.averagingWindow
-			if windowStart < 0 {
+			if i < da.averagingWindow {
 				//todo: don't print for each point
 				infoLog.Printf("Not enough history to compute averaging window for a point %s, skipping", points[i].T)
 				continue
@@ -766,11 +779,14 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 			//todo: reuse prev. point sum
 			sum, sumSq := 0.0, 0.0
 			count := 0
-			for j := windowStart; j < i; j++ {
-				val := points[j].Value
+			for j := da.period; j <= da.averagingWindow; j += da.period {
+				val := points[i-j].Value
 				sum += val
 				sumSq += val * val
 				count++
+			}
+			if count == 0 {
+				continue
 			}
 			mean := sum / float64(count)
 
