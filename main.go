@@ -270,6 +270,7 @@ func startFSWatcher() {
 					OTL.initConnections()
 					OTL.initNotifiers()
 					OTL.initDetectors()
+					broadcastSSEUpdate(fmt.Sprintf(`{"event": "config_reload"}`))
 				})
 			}
 		case err, ok := <-watcher.Errors:
@@ -1190,6 +1191,66 @@ func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type sseClients struct {
+	clients map[chan string]bool
+	mu      sync.Mutex
+}
+
+// todo: avoid global variables
+var SSECLIENTS = &sseClients{
+	clients: make(map[chan string]bool),
+}
+
+func addSSEClient(ch chan string) {
+	SSECLIENTS.mu.Lock()
+	defer SSECLIENTS.mu.Unlock()
+	SSECLIENTS.clients[ch] = true
+}
+
+func removeSSEClient(ch chan string) {
+	SSECLIENTS.mu.Lock()
+	defer SSECLIENTS.mu.Unlock()
+	delete(SSECLIENTS.clients, ch)
+	close(ch)
+}
+
+func broadcastSSEUpdate(msg string) {
+	SSECLIENTS.mu.Lock()
+	defer SSECLIENTS.mu.Unlock()
+	infoLog.Printf("Event '%s'", msg)
+	for ch := range SSECLIENTS.clients {
+		select {
+		case ch <- msg:
+		default: // drop message if channel overflows
+		}
+	}
+}
+
+func httpEvents(w http.ResponseWriter, r *http.Request) {
+	err, code, msg := httpCheckAuth(w, r)
+	if err != nil {
+		http.Error(w, msg, code)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	clientChan := make(chan string, 30)
+	addSSEClient(clientChan)
+	defer removeSSEClient(clientChan)
+
+	for msg := range clientChan {
+		fmt.Fprintf(w, "data: %s\n\n", msg)
+		flusher.Flush()
+	}
+}
+
 func (ot *Outliers) initNotifiers() error {
 	ot.Notifiers = make(map[string]Notifier)
 
@@ -1394,64 +1455,4 @@ func combineRecipients(base, extra []string) []string {
 		}
 	}
 	return all
-}
-
-type sseClients struct {
-	clients map[chan string]bool
-	mu      sync.Mutex
-}
-
-// todo: avoid global variables
-var SSECLIENTS = &sseClients{
-	clients: make(map[chan string]bool),
-}
-
-func addSSEClient(ch chan string) {
-	SSECLIENTS.mu.Lock()
-	defer SSECLIENTS.mu.Unlock()
-	SSECLIENTS.clients[ch] = true
-}
-
-func removeSSEClient(ch chan string) {
-	SSECLIENTS.mu.Lock()
-	defer SSECLIENTS.mu.Unlock()
-	delete(SSECLIENTS.clients, ch)
-	close(ch)
-}
-
-func broadcastSSEUpdate(msg string) {
-	SSECLIENTS.mu.Lock()
-	defer SSECLIENTS.mu.Unlock()
-	infoLog.Printf("Event '%s'", msg)
-	for ch := range SSECLIENTS.clients {
-		select {
-		case ch <- msg:
-		default: // drop message if channel overflows
-		}
-	}
-}
-
-func httpEvents(w http.ResponseWriter, r *http.Request) {
-	err, code, msg := httpCheckAuth(w, r)
-	if err != nil {
-		http.Error(w, msg, code)
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
-		return
-	}
-
-	clientChan := make(chan string, 30)
-	addSSEClient(clientChan)
-	defer removeSSEClient(clientChan)
-
-	for msg := range clientChan {
-		fmt.Fprintf(w, "data: %s\n\n", msg)
-		flusher.Flush()
-	}
 }
