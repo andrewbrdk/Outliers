@@ -475,10 +475,17 @@ func newDetectionAlgorithm(dconf *DetectorConfig) DetectionAlgorithm {
 }
 
 func noConfChanges(d *Detector, c *DetectorConfig) bool {
+	//todo: reload without check
 	if d == nil || c == nil {
 		return false
 	}
-	//todo: compare detection algorithm params
+
+	outcon := c.OutputConnectionName
+	if outcon == "" {
+		outcon = c.ConnectionName
+	}
+
+	same_params := noConfChangeAlgDetection(&d.algorithm, c)
 	return d.Title == c.Title &&
 		d.DataSQL == c.DataSQL &&
 		d.OutputTable == c.OutputTable &&
@@ -486,8 +493,44 @@ func noConfChanges(d *Detector, c *DetectorConfig) bool {
 		d.DetectionMethod == c.DetectionMethod &&
 		d.CronSchedule == c.CronSchedule &&
 		d.ConnectionName == c.ConnectionName &&
-		d.OutputConnectionName == c.OutputConnectionName &&
-		stringSlicesEqual(d.NotifyEmails, c.NotifyEmails)
+		d.OutputConnectionName == outcon &&
+		stringSlicesEqual(d.NotifyEmails, c.NotifyEmails) &&
+		same_params
+}
+
+func noConfChangeAlgDetection(alg *DetectionAlgorithm, c *DetectorConfig) bool {
+	var same bool
+
+	if alg.detectionMethod == "threshold" {
+		same = ptrEqual(alg.lower, c.Lower) &&
+			ptrEqual(alg.upper, c.Upper)
+	} else if alg.detectionMethod == "dist_from_mean" {
+		//todo: remove duplicated code
+		var window int
+		if c.AveragingWindow != nil {
+			window = *c.AveragingWindow
+		}
+		period := 1
+		if c.Period != nil && *c.Period >= 1 {
+			period = *c.Period
+		}
+
+		same = ptrEqual(alg.sigma, c.Sigma) &&
+			ptrEqual(alg.percent, c.Percent) &&
+			alg.period == period &&
+			alg.averagingWindow == window
+	}
+	return same
+}
+
+func ptrEqual[T comparable](a, b *T) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
 
 func stringSlicesEqual(a, b []string) bool {
