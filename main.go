@@ -288,10 +288,13 @@ func (ot *Outliers) loadConfFile(filename string) error {
 		errorLog.Printf("Error reading file %s: %v", filename, err)
 		return err
 	}
-	if err := toml.Unmarshal(f, &ot.parsedConf); err != nil {
+	cfg := ParsedConfig{} //new structure to correctly handle missing values on reload
+	if err := toml.Unmarshal(f, &cfg); err != nil {
 		errorLog.Printf("Error parsing file %s: %v", filename, err)
 		return err
 	}
+	//todo: move noConfChanges here
+	ot.parsedConf = cfg
 	return nil
 }
 
