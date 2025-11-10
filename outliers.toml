@@ -42,8 +42,21 @@ backsteps = 90
 cron_schedule = "*/5 * * * *"
 notify_emails = [""]
 detection_method = 'dist_from_mean'
-sigma = 3
 avg_window = 30
+sigma = 3
+
+[[detectors]]
+title = "Wiki Pageviews IQR"
+connection = "main_pg"
+data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
+output = "wiki_pageviews_outliers"
+backsteps = 90
+cron_schedule = "*/5 * * * *"
+notify_emails = [""]
+detection_method = 'iqr'
+iqr_window = 60
+iqr_range = 1.5
+
 
 [[detectors]]
 title = "Wiki Pageviews Projects"

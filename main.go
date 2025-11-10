@@ -102,6 +102,9 @@ type DetectorConfig struct {
 	Percent         *float64 `toml:"percent"`
 	Sigma           *float64 `toml:"sigma"`
 	Period          *int     `toml:"period"`
+	// IQR
+	IQRWindow *int     `toml:"iqr_window"`
+	IQRRange  *float64 `toml:"iqr_range"`
 }
 
 type DetectionAlgorithm struct {
@@ -115,6 +118,9 @@ type DetectionAlgorithm struct {
 	percent         *float64
 	sigma           *float64
 	period          int
+	// iqr
+	IQRWindow int
+	IQRRange  float64
 }
 
 type Point struct {
@@ -394,6 +400,13 @@ func (d *DetectorConfig) validateConf() error {
 
 func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
 	switch strings.ToLower(d.DetectionMethod) {
+	case "threshold":
+		if d.Lower == nil && d.Upper == nil {
+			return fmt.Errorf("at least one of 'lower' or 'upper' boundaries must be specified")
+		}
+		if d.Lower != nil && d.Upper != nil && *d.Lower >= *d.Upper {
+			infoLog.Printf("Warning: 'lower' boundary is greater than 'upper'")
+		}
 	case "dist_from_mean":
 		if d.Percent == nil && d.Sigma == nil {
 			return fmt.Errorf("either 'percent' or 'sigma' must be specified for 'dist_from_mean' detection method")
@@ -408,10 +421,10 @@ func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
 			return fmt.Errorf("'sigma' must be positive, got %f", *d.Sigma)
 		}
 		if d.AveragingWindow == nil {
-			return fmt.Errorf("'window' must be specified for 'dist_from_mean' detection method")
+			return fmt.Errorf("'avg_window' must be specified for 'dist_from_mean' detection method")
 		}
 		if d.AveragingWindow != nil && *d.AveragingWindow <= 0 {
-			return fmt.Errorf("'window' must be positive, got %d", *d.AveragingWindow)
+			return fmt.Errorf("'avg_window' must be positive, got %d", *d.AveragingWindow)
 		}
 		if d.Period != nil && *d.Period <= 0 {
 			return fmt.Errorf("'period' must be positive if specified, got %d", *d.Period)
@@ -419,12 +432,18 @@ func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
 		if d.Period != nil && *d.Period > *d.AveragingWindow {
 			return fmt.Errorf("'period' %d must be less than 'window' %d", *d.Period, *d.AveragingWindow)
 		}
-	case "threshold":
-		if d.Lower == nil && d.Upper == nil {
-			return fmt.Errorf("at least one of 'lower' or 'upper' boundaries must be specified")
+	case "iqr":
+		if d.IQRWindow == nil {
+			return fmt.Errorf("'iqr_window' must be specified for 'iqr' detection method")
 		}
-		if d.Lower != nil && d.Upper != nil && *d.Lower >= *d.Upper {
-			infoLog.Printf("Warning: 'lower' boundary is greater than 'upper'")
+		if d.IQRWindow != nil && *d.IQRWindow <= 0 {
+			return fmt.Errorf("'iqr_window' must be positive, got %d", *d.IQRWindow)
+		}
+		if d.IQRRange == nil {
+			return fmt.Errorf("'iqr_range' must be specified for 'iqr' detection method")
+		}
+		if d.IQRRange != nil && *d.IQRRange <= 0 {
+			return fmt.Errorf("'iqr_range' must be positive, got %f", *d.IQRRange)
 		}
 	default:
 		return fmt.Errorf("unknown detection method: %s", d.DetectionMethod)
@@ -454,14 +473,23 @@ func newDetector(dconf *DetectorConfig, id int) *Detector {
 }
 
 func newDetectionAlgorithm(dconf *DetectorConfig) DetectionAlgorithm {
-	var window int
+	//todo: simplify
+	var avg_window int
 	if dconf.AveragingWindow != nil {
-		window = *dconf.AveragingWindow
+		avg_window = *dconf.AveragingWindow
 	}
-
 	period := 1
 	if dconf.Period != nil && *dconf.Period >= 1 {
 		period = *dconf.Period
+	}
+
+	var iqr_window int
+	if dconf.IQRWindow != nil {
+		iqr_window = *dconf.IQRWindow
+	}
+	var r float64
+	if dconf.IQRRange != nil {
+		r = *dconf.IQRRange
 	}
 
 	da := DetectionAlgorithm{
@@ -469,10 +497,12 @@ func newDetectionAlgorithm(dconf *DetectorConfig) DetectionAlgorithm {
 		backsteps:       dconf.Backsteps,
 		lower:           dconf.Lower,
 		upper:           dconf.Upper,
-		averagingWindow: window,
+		averagingWindow: avg_window,
 		percent:         dconf.Percent,
 		sigma:           dconf.Sigma,
 		period:          period,
+		IQRWindow:       iqr_window,
+		IQRRange:        r,
 	}
 	return da
 }
@@ -522,6 +552,17 @@ func noConfChangeAlgDetection(alg *DetectionAlgorithm, c *DetectorConfig) bool {
 			ptrEqual(alg.percent, c.Percent) &&
 			alg.period == period &&
 			alg.averagingWindow == window
+	} else if alg.detectionMethod == "iqr" {
+		var window int
+		if c.IQRWindow != nil {
+			window = *c.IQRWindow
+		}
+		var r float64
+		if c.IQRRange != nil {
+			r = *c.IQRRange
+		}
+		same = alg.IQRWindow == window &&
+			alg.IQRRange == r
 	}
 	return same
 }
@@ -860,8 +901,62 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 				IsOutlier:  val < lower || val > upper,
 			})
 		}
+	} else if da.detectionMethod == "iqr" {
+		for i := range points {
+			if i < da.IQRWindow {
+				infoLog.Printf("Not enough history to compute IQR window for point %s, skipping", points[i].T)
+				continue
+			}
+			//todo: optimize
+			var vals []float64
+			for j := 1; j <= da.IQRWindow; j += 1 {
+				vals = append(vals, points[i-j].Value)
+			}
+			if len(vals) < 4 {
+				infoLog.Printf("Too few values for IQR calculation at %s", points[i].T)
+				continue
+			}
+			sort.Float64s(vals)
+			q1 := percentile(vals, 25)
+			q3 := percentile(vals, 75)
+			iqr := q3 - q1
+			lower := q1 - da.IQRRange*iqr
+			upper := q3 + da.IQRRange*iqr
+
+			val := points[i].Value
+			marked = append(marked, MarkedPoint{
+				T:          points[i].T,
+				TUnix:      points[i].TUnix,
+				Dim:        points[i].Dim,
+				Value:      val,
+				LowerBound: sql.NullFloat64{Float64: lower, Valid: true},
+				UpperBound: sql.NullFloat64{Float64: upper, Valid: true},
+				IsOutlier:  val < lower || val > upper,
+			})
+		}
 	}
 	return marked, nil
+}
+
+func percentile(sorted []float64, p float64) float64 {
+	if len(sorted) == 0 {
+		return math.NaN()
+	}
+	if p <= 0 {
+		return sorted[0]
+	}
+	if p >= 100 {
+		return sorted[len(sorted)-1]
+	}
+	//todo: simplify
+	rank := (p / 100.0) * float64(len(sorted)-1)
+	lower := int(math.Floor(rank))
+	upper := int(math.Ceil(rank))
+	if lower == upper {
+		return sorted[lower]
+	}
+	weight := rank - float64(lower)
+	return sorted[lower]*(1-weight) + sorted[upper]*weight
 }
 
 func (d *Detector) writeResults() error {
