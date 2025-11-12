@@ -3,7 +3,7 @@
 Timeseries outliers detector.
 
 <div align="center">
-    <img src="https://i.ibb.co/sdcg9xf2/outliers.png" alt="outliers" width="700">
+    <img src="https://i.postimg.cc/GrBj3QTD/outliers.png" alt="outliers" width="700">
 </div>
 
 The service starts at [http://localhost:9090](http://localhost:9090) after the following commands:
