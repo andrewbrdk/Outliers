@@ -1498,9 +1498,10 @@ func (ot *Outliers) initConnections() error {
 			continue
 		}
 		driver := "pgx"
-		db, err := sql.Open(driver, c.ConnStr)
+		db, err := sql.Open(driver, resolveEnvVar(c.ConnStr))
 		if err != nil {
-			errorLog.Printf("Failed to open DB for %s: %v", c.Title, err)
+			//todo: allow reconnect
+			errorLog.Printf("Skipping connection '%s': failed to open DB: %v", c.Title, err)
 			continue
 		}
 		if c.MaxOpenConns > 0 {
