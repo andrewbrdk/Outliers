@@ -1522,9 +1522,8 @@ func (ot *Outliers) initConnections() error {
 		err = db.PingContext(ctx)
 		cancel()
 		if err != nil {
-			errorLog.Printf("DB ping failed for %s: %v", c.Title, err)
-			db.Close()
-			continue
+			//todo: allow reconnect
+			infoLog.Printf("Warning: DB ping failed for %s: %v", c.Title, err)
 		}
 
 		con := PostgresConnection{
@@ -1537,7 +1536,7 @@ func (ot *Outliers) initConnections() error {
 		}
 
 		ot.Connections[c.Title] = con
-		infoLog.Printf("Opened connection '%s' (type=%s)", c.Title, c.Type)
+		infoLog.Printf("Added connection '%s' (type=%s)", c.Title, c.Type)
 	}
 
 	infoLog.Printf("Loaded %d connections", len(ot.Connections))
