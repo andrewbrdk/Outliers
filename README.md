@@ -30,7 +30,7 @@ type = "postgres"
 connection = "$PG_CONSTR"
 
 [[notifications]]
-title = "Slack Repeater"
+title = "Slack"
 type = "slack"
 webhook_url = "$SLACK_WEBHOOK"
 
@@ -39,9 +39,7 @@ title = "Wiki Pageviews"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-backsteps = 90
 cron_schedule = "05 03 * * *"
-notify_emails = [""]
 detection_method = 'dist_from_mean'
 percent = 10
 avg_window = 30

@@ -43,8 +43,8 @@ var OTL Outliers
 var CONF Config
 
 type Outliers struct {
-	Connections map[string]Connection
-	Notifiers   map[string]Notifier
+	connections map[string]Connection
+	notifiers   map[string]Notifier
 	Detectors   map[int]*Detector
 	counter     int
 	cron        *cron.Cron
@@ -1065,7 +1065,7 @@ func (d *Detector) notify() error {
 		}
 		msg = sb.String()
 	}
-	for _, n := range OTL.Notifiers {
+	for _, n := range OTL.notifiers {
 		go func(notifier Notifier) {
 			err := notifier.Notify(msg, d)
 			if err != nil {
@@ -1398,19 +1398,19 @@ func httpEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ot *Outliers) initNotifiers() error {
-	ot.Notifiers = make(map[string]Notifier)
+	ot.notifiers = make(map[string]Notifier)
 
 	//todo: validate config
 	for _, n := range ot.parsedConf.Notifications {
 		//todo: warning on overwrite
 		switch n.Type {
 		case "slack":
-			ot.Notifiers[n.Title] = &SlackNotification{
+			ot.notifiers[n.Title] = &SlackNotification{
 				title:      n.Title,
 				webhookURL: resolveEnvVar(n.WebhookURL),
 			}
 		case "email":
-			ot.Notifiers[n.Title] = &EmailNotification{
+			ot.notifiers[n.Title] = &EmailNotification{
 				title:              n.Title,
 				SMTPServerWithPort: resolveEnvVar(n.SMTPServerWithPort),
 				username:           resolveEnvVar(n.Username),
@@ -1423,7 +1423,7 @@ func (ot *Outliers) initNotifiers() error {
 		}
 	}
 
-	infoLog.Printf("Loaded %d notifiers\n", len(ot.Notifiers))
+	infoLog.Printf("Loaded %d notifiers\n", len(ot.notifiers))
 	return nil
 }
 
@@ -1491,7 +1491,7 @@ func (ot *Outliers) initConnections() error {
 		errorLog.Printf("Error closing connections: %v", err)
 		return err
 	}
-	ot.Connections = make(map[string]Connection)
+	ot.connections = make(map[string]Connection)
 
 	for _, c := range ot.parsedConf.Connections {
 		if c.Title == "" || c.Type == "" || c.ConnStr == "" {
@@ -1554,30 +1554,30 @@ func (ot *Outliers) initConnections() error {
 			db:              db,
 		}
 
-		ot.Connections[c.Title] = con
+		ot.connections[c.Title] = con
 		infoLog.Printf("Added connection '%s' (type=%s)", c.Title, c.Type)
 	}
 
-	infoLog.Printf("Loaded %d connections", len(ot.Connections))
+	infoLog.Printf("Loaded %d connections", len(ot.connections))
 	return nil
 }
 
 func (ot *Outliers) CloseAllConnections() error {
 	var err error
-	for k, c := range ot.Connections {
+	for k, c := range ot.connections {
 		err = c.Close()
 		if err != nil {
 			errorLog.Printf("Error closing connection '%s': %v", k, err)
 			return err
 		}
 		infoLog.Printf("Closed connection '%s'", k)
-		delete(ot.Connections, k)
+		delete(ot.connections, k)
 	}
 	return err
 }
 
 func (ot *Outliers) GetDB(connName string) (*sql.DB, error) {
-	con, ok := ot.Connections[connName]
+	con, ok := ot.connections[connName]
 	if !ok {
 		return nil, fmt.Errorf("connection '%s' not found", connName)
 	}
