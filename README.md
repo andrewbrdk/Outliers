@@ -28,9 +28,6 @@ Config example:
 title = "main_pg"
 type = "postgres"
 connection = "$PG_CONSTR"
-max_open_conns = 10
-max_idle_conns = 2
-conn_max_lifetime = "30m"
 
 [[notifications]]
 title = "Slack Repeater"
@@ -58,9 +55,9 @@ title = "main_pg"
 type = "postgres"
 connection = "postgres://pguser:password123@localhost:5432/outliers"
 #connection = "$PG_CONSTR"
-max_open_conns = 10
-max_idle_conns = 2
-conn_max_lifetime = "30m"
+max_open_conns = 10         # 10 by default
+max_idle_conns = 5          # 3 by default
+conn_max_lifetime = "60m"   # 30 min by default
 
 # Slack Notifications
 [[notifications]]

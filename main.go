@@ -1500,22 +1500,36 @@ func (ot *Outliers) initConnections() error {
 		driver := "pgx"
 		db, err := sql.Open(driver, resolveEnvVar(c.ConnStr))
 		if err != nil {
-			//todo: allow reconnect
 			errorLog.Printf("Skipping connection '%s': failed to open DB: %v", c.Title, err)
 			continue
 		}
+		const (
+			defaultMaxOpenConns    = 10
+			defaultMaxIdleConns    = 3
+			defaultConnMaxLifetime = time.Minute * 30
+		)
 		if c.MaxOpenConns > 0 {
 			db.SetMaxOpenConns(c.MaxOpenConns)
+		} else {
+			infoLog.Printf("Using default value %d for '%s' MaxOpenConns", defaultMaxOpenConns, c.Title)
+			db.SetMaxOpenConns(defaultMaxOpenConns)
 		}
 		if c.MaxIdleConns > 0 {
 			db.SetMaxIdleConns(c.MaxIdleConns)
+		} else {
+			infoLog.Printf("Using default value %d for '%s' MaxIdleConns", defaultMaxIdleConns, c.Title)
+			db.SetMaxIdleConns(defaultMaxIdleConns)
 		}
 		if c.ConnMaxLifetime != "" {
 			if d, err := time.ParseDuration(c.ConnMaxLifetime); err == nil {
 				db.SetConnMaxLifetime(d)
 			} else {
 				errorLog.Printf("Invalid conn_max_lifetime for %s: %v (using default)", c.Title, err)
+				db.SetConnMaxLifetime(defaultConnMaxLifetime)
 			}
+		} else {
+			infoLog.Printf("Using default value %s for '%s' ConnMaxLifetime", defaultConnMaxLifetime, c.Title)
+			db.SetConnMaxLifetime(defaultConnMaxLifetime)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
