@@ -82,7 +82,8 @@ type Detector struct {
 	NextScheduled        time.Time                `toml:"-"`
 	OnOff                bool                     `toml:"-"`
 	NotifyEmails         []string                 `toml:"notify_emails"`
-	Config               *DetectorConfig          `toml:"-"`
+	Config               DetectorConfig           `toml:"-"`
+	//todo: Config *DetectorConfig
 }
 
 type DetectorConfig struct {
@@ -344,7 +345,7 @@ func (ot *Outliers) initDetectors() error {
 			infoLog.Printf("Loading new detector '%s'", dconf.Title)
 		}
 
-		d := newDetector(&dconf, ot.counter)
+		d := newDetector(dconf, ot.counter)
 		ot.Detectors[ot.counter] = d
 		if d.CronSchedule != "" {
 			ot.scheduleDetectorUpdate(d)
@@ -452,7 +453,8 @@ func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
 	return nil
 }
 
-func newDetector(dconf *DetectorConfig, id int) *Detector {
+func newDetector(dconf DetectorConfig, id int) *Detector {
+	//todo: dconf *DetectorConfig
 	d := &Detector{
 		Title:                dconf.Title,
 		ConnectionName:       dconf.ConnectionName,
@@ -474,7 +476,8 @@ func newDetector(dconf *DetectorConfig, id int) *Detector {
 	return d
 }
 
-func newDetectionAlgorithm(dconf *DetectorConfig) DetectionAlgorithm {
+func newDetectionAlgorithm(dconf DetectorConfig) DetectionAlgorithm {
+	//todo: dconf *DetectorConfig
 	//todo: simplify
 	var avg_window int
 	if dconf.AveragingWindow != nil {
