@@ -350,7 +350,16 @@ class XDetector extends HTMLElement {
 
 	async showHide() {
 		this.#collapsed = !this.#collapsed;
-		this.update();
+		const info = this.querySelector('.detector-info');
+		const plots = this.querySelector('.plots');
+		const collapseSign = this.querySelector('.collapse-sign');	
+		if (info && this.#collapsed) {
+			info.classList.toggle('hidden', this.#collapsed);
+		}
+		if (plots) plots.classList.toggle('hidden', this.#collapsed);
+		if (collapseSign) {
+			collapseSign.textContent = this.#collapsed ? '+' : '–';
+		}
 	}
 
 	formatDateTime(d) {
