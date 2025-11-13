@@ -201,6 +201,19 @@ class XDetector extends HTMLElement {
 		let collapse_sign_text = this.#collapsed ? '+' : '-';
 		let plots_hidden = this.#collapsed ? 'hidden' : '';
 
+		let detector_info_html = '';
+		//todo: construct full info
+		const configKeys = [
+			"Lower", "Upper",
+			"AveragingWindow", "Percent", "Sigma", "Period",
+			"IQRWindow", "IQRRange"];
+		for (const key of configKeys) {
+			const value = this.detector.Config?.[key];
+			if (value !== undefined && value !== null) {
+				detector_info_html += `
+					<p><span class="label">${key}:</span><span class="value">${escapeHTML(String(value))}</span></p>`;
+			}
+		}
 		let html = `
 		<div class="detector-header">
 			<div class="left">
@@ -221,8 +234,9 @@ class XDetector extends HTMLElement {
 			<p><span class="label">OutputConnectionName:</span><span class="value">${escapeHTML(this.detector.OutputConnectionName)}</span></p>
 			<p><span class="label">OutputTable:</span><span class="value">${escapeHTML(this.detector.OutputTable)}</span></p>
 			<p><span class="label">Backsteps:</span><span class="value">${this.detector.Backsteps}</span></p>
-			<p><span class="label">DetectionMethod:</span><span class="value">${escapeHTML(this.detector.DetectionMethod)}</span></p>
 			<p><span class="label">CronSchedule:</span><span class="value">${escapeHTML(this.detector.CronSchedule)}</span></p>
+			<p><span class="label">DetectionMethod:</span><span class="value">${escapeHTML(this.detector.DetectionMethod)}</span></p>
+			${detector_info_html}
 		</div>
 		<div class="plots ${plots_hidden}"></div>`;
 		return html;

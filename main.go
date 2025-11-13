@@ -82,6 +82,7 @@ type Detector struct {
 	NextScheduled        time.Time                `toml:"-"`
 	OnOff                bool                     `toml:"-"`
 	NotifyEmails         []string                 `toml:"notify_emails"`
+	Config               *DetectorConfig          `toml:"-"`
 }
 
 type DetectorConfig struct {
@@ -462,6 +463,7 @@ func newDetector(dconf *DetectorConfig, id int) *Detector {
 		DetectionMethod:      dconf.DetectionMethod,
 		CronSchedule:         dconf.CronSchedule,
 		NotifyEmails:         dconf.NotifyEmails,
+		Config:               dconf,
 	}
 	if dconf.OutputConnectionName == "" {
 		d.OutputConnectionName = dconf.ConnectionName
