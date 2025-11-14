@@ -136,6 +136,8 @@ class XLogin extends HTMLElement {
 class XDetector extends HTMLElement {
 	detector = null;
 	#collapsed = false;
+	#display_start = null;
+	#display_end = null;
 
 	getDisplayedState() {
 		return {
@@ -176,6 +178,18 @@ class XDetector extends HTMLElement {
 				this.showHide();
 			}
 		};
+
+		const startInput = this.querySelector('.date-start');
+		const endInput = this.querySelector('.date-end');
+		const onDateRangeChange = () => {
+			const startVal = this.querySelector('.date-start')?.value;
+			const endVal = this.querySelector('.date-end')?.value;
+			this.#display_start = startVal ? new Date(startVal) : null;
+			this.#display_end = endVal ? new Date(endVal) : null;
+			this.drawCharts();
+		}
+		if (startInput) startInput.onchange = onDateRangeChange;
+		if (endInput) endInput.onchange = onDateRangeChange;
 	}
 	
 	unbindEvents() {
@@ -225,6 +239,25 @@ class XDetector extends HTMLElement {
 				<h3 class="detector-title">${escapeHTML(this.detector.Title)}</h3>
 				<button class="info">i</button>
 			</div>
+			<div class="date-range">
+				<input type="date" class="date-start">
+				<span>-</span>
+				<input type="date" class="date-end">
+				<input 
+					type="text" 
+					class="date-start" 
+					placeholder="dd.mm.yyyy"
+					inputmode="numeric"
+					pattern="\d{2}\.\d{2}\.\d{4}"
+				>
+				<input 
+					type="text" 
+					class="date-end" 
+					placeholder="dd.mm.yyyy"
+					inputmode="numeric"
+					pattern="\d{2}\.\d{2}\.\d{4}"
+				>
+			</div>
 			<div class="outliers-text">${outliers_text}</div>
 			<div class="right">
 				<span class="schedule">${schedule_text}</span>
@@ -266,11 +299,21 @@ class XDetector extends HTMLElement {
     		plotWrapper.appendChild(legendDiv);
 			container.appendChild(plotWrapper);
 
-			const x = points.map(p => p.T);
-			const y = points.map(p => p.Value);
-			const outliers = points.map(p => p.IsOutlier ? p.Value : null);
-			const lower = points.map(p => p.LowerBound.Valid ? p.LowerBound.Float64 : null);
-			const upper = points.map(p => p.UpperBound.Valid ? p.UpperBound.Float64 : null);
+			let filteredPoints = points;
+			if (this.#display_start || this.#display_end) {
+				filteredPoints = points.filter(p => {
+					const t = new Date(p.T * 1000);
+					return (!this.#display_start || this.#display_start <= t) && 
+						   (!this.#display_end || t <= this.#display_end);
+				});
+			}
+			if (!filteredPoints.length) continue;
+
+			const x = filteredPoints.map(p => p.T);
+			const y = filteredPoints.map(p => p.Value);
+			const outliers = filteredPoints.map(p => p.IsOutlier ? p.Value : null);
+			const lower = filteredPoints.map(p => p.LowerBound.Valid ? p.LowerBound.Float64 : null);
+			const upper = filteredPoints.map(p => p.UpperBound.Valid ? p.UpperBound.Float64 : null);
 			const uplotData = [x, y, outliers, lower, upper];
 
 			let time_format = "{YYYY}-{MM}-{DD} {HH}:{mm}";
