@@ -7,6 +7,8 @@
 	<link rel="stylesheet" href="uPlot/uPlot.min.css">
 	<script src="uPlot/uPlot.iife.min.js"></script>
 	<link rel="stylesheet" href="/style.css">
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+	<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 </head>
 <body>
 	
@@ -138,6 +140,7 @@ class XDetector extends HTMLElement {
 	#collapsed = false;
 	#display_start = null;
 	#display_end = null;
+	#datepicker = null;
 
 	getDisplayedState() {
 		return {
@@ -154,6 +157,12 @@ class XDetector extends HTMLElement {
 
 	async update() {
 		this.innerHTML = await this.HTML();
+		const dr = this.querySelector('.daterange');
+		this.#datepicker = flatpickr(dr, 
+			{mode: "range", 
+			allowInput: true, 
+			dateFormat: "d.m.Y",
+		});
 		this.bindEvents();
 		this.drawCharts();
 	}
@@ -179,23 +188,23 @@ class XDetector extends HTMLElement {
 			}
 		};
 
-		const startInput = this.querySelector('.date-start');
-		const endInput = this.querySelector('.date-end');
+		const dr = this.querySelector('.daterange');
 		const onDateRangeChange = () => {
-			const startVal = this.querySelector('.date-start')?.value;
-			const endVal = this.querySelector('.date-end')?.value;
+			const startVal = this.#datepicker.selectedDates[0] ?? null;
+			const endVal = this.#datepicker.selectedDates[1] ?? null;
 			this.#display_start = startVal ? new Date(startVal) : null;
 			this.#display_end = endVal ? new Date(endVal) : null;
 			this.drawCharts();
 		}
-		if (startInput) startInput.onchange = onDateRangeChange;
-		if (endInput) endInput.onchange = onDateRangeChange;
+		if (dr) dr.onchange = onDateRangeChange;
 	}
 	
 	unbindEvents() {
 		this.onclick = null;
 		this.querySelectorAll('button').forEach(btn => btn.onclick = null);
-	}	
+	}
+
+
 	
 	async HTML() {
 		let outliers_text = '';
@@ -240,23 +249,7 @@ class XDetector extends HTMLElement {
 				<button class="info">i</button>
 			</div>
 			<div class="date-range">
-				<input type="date" class="date-start">
-				<span>-</span>
-				<input type="date" class="date-end">
-				<input 
-					type="text" 
-					class="date-start" 
-					placeholder="dd.mm.yyyy"
-					inputmode="numeric"
-					pattern="\d{2}\.\d{2}\.\d{4}"
-				>
-				<input 
-					type="text" 
-					class="date-end" 
-					placeholder="dd.mm.yyyy"
-					inputmode="numeric"
-					pattern="\d{2}\.\d{2}\.\d{4}"
-				>
+				<input class="daterange" type="text" placeholder="Select date range">
 			</div>
 			<div class="outliers-text">${outliers_text}</div>
 			<div class="right">
