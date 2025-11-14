@@ -134,6 +134,12 @@ x-detector {
 		button.info:active {
 			background-color: #eee;
 		}
+		.daterange {
+			flex: auto;
+			border: none;
+			font-style: italic;
+			outline: none;
+		}
 		.outliers-text {
 			flex: 40;
 			text-align: center;
