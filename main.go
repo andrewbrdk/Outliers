@@ -65,7 +65,6 @@ type Detector struct {
 	DataSQL              string                   `toml:"data_sql"`
 	OutputConnectionName string                   `toml:"output_connection"`
 	OutputTable          string                   `toml:"output"`
-	Backsteps            int                      `toml:"backsteps"`
 	DetectionMethod      string                   `toml:"detection_method"`
 	algorithm            DetectionAlgorithm       `toml:"-"`
 	points               map[string][]Point       `toml:"-"`
@@ -82,6 +81,7 @@ type Detector struct {
 	NextScheduled        time.Time                `toml:"-"`
 	OnOff                bool                     `toml:"-"`
 	NotifyEmails         []string                 `toml:"notify_emails"`
+	PlotLookback         int                      `toml:"plot_lookback"`
 	Config               DetectorConfig           `toml:"-"`
 	//todo: Config *DetectorConfig
 }
@@ -92,9 +92,9 @@ type DetectorConfig struct {
 	DataSQL              string   `toml:"data_sql"`
 	OutputConnectionName string   `toml:"output_connection,omitempty"`
 	OutputTable          string   `toml:"output"`
-	Backsteps            int      `toml:"backsteps"`
 	CronSchedule         string   `toml:"cron_schedule"`
 	NotifyEmails         []string `toml:"notify_emails"`
+	PlotLookback         *int     `toml:"plot_lookback"`
 	DetectionMethod      string   `toml:"detection_method"`
 	// threshold
 	Lower *float64 `toml:"lower"`
@@ -366,6 +366,7 @@ func (ot *Outliers) initDetectors() error {
 }
 
 func (d *DetectorConfig) validateConf() error {
+	//todo: merge validate and init
 	if d.Title == "" {
 		errorLog.Printf("Config missing title")
 		return errors.New("Invalid Config: missing title")
@@ -388,14 +389,14 @@ func (d *DetectorConfig) validateConf() error {
 		errorLog.Printf("Invalid output table name: %s", d.OutputTable)
 		return errors.New("invalid output table name: " + d.OutputTable)
 	}
-	if d.Backsteps <= 0 {
-		errorLog.Printf("Invalid backsteps: %d", d.Backsteps)
-		return fmt.Errorf("invalid backsteps: %d", d.Backsteps)
-	}
 	err := d.validateDetectionAlgorithmConf()
 	if err != nil {
 		errorLog.Printf("Invalid detection method config in %s: %v", d.Title, err)
 		return err
+	}
+	if d.PlotLookback != nil && *d.PlotLookback <= 0 {
+		errorLog.Printf("%s: 'plot_lookback' should be gt. 0 if specified", d.Title)
+		return fmt.Errorf("%s: 'plot_lookback' should be gt. 0 if specified", d.Title)
 	}
 	return nil
 }
@@ -455,16 +456,20 @@ func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
 
 func newDetector(dconf DetectorConfig, id int) *Detector {
 	//todo: dconf *DetectorConfig
+	var plb int
+	if dconf.PlotLookback != nil {
+		plb = *dconf.PlotLookback
+	}
 	d := &Detector{
 		Title:                dconf.Title,
 		ConnectionName:       dconf.ConnectionName,
 		DataSQL:              dconf.DataSQL,
 		OutputTable:          dconf.OutputTable,
 		OutputConnectionName: dconf.OutputConnectionName,
-		Backsteps:            dconf.Backsteps,
 		DetectionMethod:      dconf.DetectionMethod,
 		CronSchedule:         dconf.CronSchedule,
 		NotifyEmails:         dconf.NotifyEmails,
+		PlotLookback:         plb,
 		Config:               dconf,
 	}
 	if dconf.OutputConnectionName == "" {
@@ -499,7 +504,6 @@ func newDetectionAlgorithm(dconf DetectorConfig) DetectionAlgorithm {
 
 	da := DetectionAlgorithm{
 		detectionMethod: dconf.DetectionMethod,
-		backsteps:       dconf.Backsteps,
 		lower:           dconf.Lower,
 		upper:           dconf.Upper,
 		averagingWindow: avg_window,
@@ -513,7 +517,6 @@ func newDetectionAlgorithm(dconf DetectorConfig) DetectionAlgorithm {
 }
 
 func noConfChanges(d *Detector, c *DetectorConfig) bool {
-	//todo: reload without check
 	if d == nil || c == nil {
 		return false
 	}
@@ -522,17 +525,21 @@ func noConfChanges(d *Detector, c *DetectorConfig) bool {
 	if outcon == "" {
 		outcon = c.ConnectionName
 	}
+	var plb int
+	if c.PlotLookback != nil {
+		plb = *c.PlotLookback
+	}
 
 	same_params := noConfChangeAlgDetection(&d.algorithm, c)
 	return d.Title == c.Title &&
 		d.DataSQL == c.DataSQL &&
 		d.OutputTable == c.OutputTable &&
-		d.Backsteps == c.Backsteps &&
 		d.DetectionMethod == c.DetectionMethod &&
 		d.CronSchedule == c.CronSchedule &&
 		d.ConnectionName == c.ConnectionName &&
 		d.OutputConnectionName == outcon &&
 		stringSlicesEqual(d.NotifyEmails, c.NotifyEmails) &&
+		d.PlotLookback == plb &&
 		same_params
 }
 
@@ -819,9 +826,9 @@ func (d *Detector) markOutliers() error {
 			d.DimsWithOutliers++
 		}
 		if d.hasDims {
-			infoLog.Printf("Dim='%s': detected %d outliers in last %d points", dim, outlierCount, d.Backsteps)
+			infoLog.Printf("Dim='%s': detected %d outliers", dim, outlierCount)
 		} else {
-			infoLog.Printf("Detected %d outliers in last %d points", outlierCount, d.Backsteps)
+			infoLog.Printf("Detected %d outliers", outlierCount)
 		}
 	}
 	d.LastUpdate = time.Now()
