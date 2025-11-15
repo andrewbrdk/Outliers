@@ -31,7 +31,8 @@ import (
 )
 
 //go:embed index.html style.css
-//go:embed uPlot/uPlot.min.css uPlot/uPlot.iife.min.js
+//go:embed libs/uPlot.min.css libs/uPlot.iife.min.js
+//go:embed libs/flatpickr.min.css libs/flatpickr.min.js
 var embedded embed.FS
 
 var jwtSecretKey []byte
@@ -1093,7 +1094,7 @@ type Response struct {
 func httpServer() {
 	http.HandleFunc("/", httpIndex)
 	http.Handle("/style.css", http.FileServer(http.FS(embedded)))
-	http.Handle("/uPlot/", http.FileServer(http.FS(embedded)))
+	http.Handle("/libs/", http.FileServer(http.FS(embedded)))
 	http.HandleFunc("/login", httpLogin)
 	http.HandleFunc("/outliers", httpOutliers)
 	http.HandleFunc("/outliers/update", outliersUpdateHandler)

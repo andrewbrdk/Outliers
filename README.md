@@ -122,4 +122,6 @@ iqr_window = 60
 iqr_range = 1.5
 ```
 
-uPlot: [https://github.com/leeoniya/uPlot](https://github.com/leeoniya/uPlot)
+Libs:  
+uPlot: [https://github.com/leeoniya/uPlot](https://github.com/leeoniya/uPlot)  
+Flatpickr: [https://github.com/flatpickr/flatpickr](https://github.com/flatpickr/flatpickr)  
