@@ -154,71 +154,17 @@ class XDetector extends HTMLElement {
 		this.detector = detector;
 		this.#collapsed = collapsed;
 		this.id = `detector${this.detector.Id}`;
-		await this.update();
+		await this.render();
 	}
 
-	async update() {
+	async render() {
 		this.innerHTML = await this.HTML();
-		const dr = this.querySelector('.daterange');
-		const pars = {
-			mode: "range", 
-			allowInput: true, 
-			dateFormat: "d.m.Y",
-		}	
-		this.#datepicker = flatpickr(dr, pars);
-		if (this.detector.PlotLookback) {
-			const today = new Date();
-			const startDate = new Date();
-			startDate.setDate(today.getDate() - this.detector.PlotLookback);
-			this.#datepicker.setDate([startDate, today])
-			this.#display_start = startDate;
-			this.#display_end = today;
-		}
+		this.setupDatePicker();
 		this.bindEvents();
 		this.drawCharts();
 		//todo: 
 		//await this.drawCharts();
 		//this.updateOutliersCountText();
-	}
-
-	bindEvents() {
-		this.unbindEvents();
-		let btn = this.querySelector('button.update');
-		if (btn) btn.onclick = () => this.onCheckOutliers();
-		
-		btn = this.querySelector('button.onoff');
-		if (btn) btn.onclick = () => this.onOff();
-		
-		btn = this.querySelector('button.info');
-		if (btn) btn.onclick = () => {
-			this.querySelector('.detector-info').classList.toggle('hidden');
-		};
-
-		this.onclick = async (e) => {
-			if ((e.target.closest('div.detector-header .left') && !e.target.matches('button.info')) || 
-				e.target.closest('div.outliers-text') || 
-				e.target.closest('div.dim-title')) {
-				this.showHide();
-			}
-		};
-
-		const dr = this.querySelector('.daterange');
-		const onDateRangeChange = async () => {
-			const startVal = this.#datepicker.selectedDates[0] ?? null;
-			const endVal = this.#datepicker.selectedDates[1] ?? null;
-			this.#display_start = startVal ? new Date(startVal) : null;
-			this.#display_end = endVal ? new Date(endVal) : null;
-			this.drawCharts();
-			//todo: 
-			//await this.drawCharts();
-			//this.updateOutliersCountText();
-		}
-		if (dr) dr.onchange = onDateRangeChange;
-	}
-	
-	unbindEvents() {
-		this.onclick = null;
-		this.querySelectorAll('button').forEach(btn => btn.onclick = null);
 	}
 
 	async HTML() {
@@ -272,6 +218,64 @@ class XDetector extends HTMLElement {
 		</div>
 		<div class="plots ${plots_hidden}"></div>`;
 		return html;
+	}
+
+	setupDatePicker() {
+		const dr = this.querySelector('.daterange');
+		const pars = {
+			mode: "range", 
+			allowInput: true, 
+			dateFormat: "d.m.Y",
+		}	
+		this.#datepicker = flatpickr(dr, pars);
+		if (this.detector.PlotLookback) {
+			const today = new Date();
+			const startDate = new Date();
+			startDate.setDate(today.getDate() - this.detector.PlotLookback);
+			this.#datepicker.setDate([startDate, today])
+			this.#display_start = startDate;
+			this.#display_end = today;
+		}
+	}
+
+	bindEvents() {
+		this.unbindEvents();
+		let btn = this.querySelector('button.update');
+		if (btn) btn.onclick = () => this.onCheckOutliers();
+		
+		btn = this.querySelector('button.onoff');
+		if (btn) btn.onclick = () => this.onOff();
+		
+		btn = this.querySelector('button.info');
+		if (btn) btn.onclick = () => {
+			this.querySelector('.detector-info').classList.toggle('hidden');
+		};
+
+		this.onclick = async (e) => {
+			if ((e.target.closest('div.detector-header .left') && !e.target.matches('button.info')) || 
+				e.target.closest('div.outliers-text') || 
+				e.target.closest('div.dim-title')) {
+				this.showHide();
+			}
+		};
+
+		const dr = this.querySelector('.daterange');
+		const onDateRangeChange = async () => {
+			const startVal = this.#datepicker.selectedDates[0] ?? null;
+			const endVal = this.#datepicker.selectedDates[1] ?? null;
+			this.#display_start = startVal ? new Date(startVal) : null;
+			this.#display_end = endVal ? new Date(endVal) : null;
+			this.drawCharts();
+			//todo: 
+			//await this.drawCharts();
+			//this.updateOutliersCountText();
+		}
+		if (dr) dr.onchange = onDateRangeChange;
+	}
+	
+	unbindEvents() {
+		this.onclick = null;
+		this.querySelectorAll('button').forEach(btn => btn.onclick = null);
 	}
 
 	async drawCharts() {
@@ -380,7 +384,7 @@ class XDetector extends HTMLElement {
 				legend.classList.add('hidden');
 			};
 		}
-		//todo: move into this.update(), fix await issues
+		//todo: move into this.render(), fix await issues
 		this.updateOutliersCountText();
 	}
 
@@ -405,7 +409,7 @@ class XDetector extends HTMLElement {
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const result = await res.json();
 			this.detector = result.detector;
-			await this.update();
+			await this.render();
 		} catch (err) {
 			console.error('Error checking outliers:', err);
 		}
@@ -420,7 +424,7 @@ class XDetector extends HTMLElement {
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const result = await res.json();
 			this.detector = result.detector;
-			await this.update();
+			await this.render();
 		} catch (err) {
 			console.error('Error turning on-off:', err);
 		}
