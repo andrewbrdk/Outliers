@@ -70,7 +70,7 @@ type Detector struct {
 	points               map[string][]Point       `toml:"-"`
 	markedPoints         map[string][]MarkedPoint `toml:"-"`
 	LastUpdate           time.Time                `toml:"-"`
-	hasDims              bool                     `toml:"-"`
+	HasDims              bool                     `toml:"-"`
 	TimeColumnIsDate     bool                     `toml:"-"`
 	TotalOutliers        int                      `toml:"-"`
 	DimsOutliers         map[string]int           `toml:"-"`
@@ -684,7 +684,7 @@ func (d *Detector) readTimeSeries() error {
 	d.points = make(map[string][]Point)
 	var p Point
 	for rows.Next() {
-		if !d.hasDims {
+		if !d.HasDims {
 			if err := rows.Scan(&p.T, &p.Value); err != nil {
 				errorLog.Printf("Scan error: %v", err)
 				continue
@@ -786,9 +786,9 @@ func (d *Detector) validateColumns(rows *sql.Rows) error {
 	}
 
 	if len(cols) == 3 {
-		d.hasDims = true
+		d.HasDims = true
 	} else {
-		d.hasDims = false
+		d.HasDims = false
 	}
 
 	return nil
@@ -825,7 +825,7 @@ func (d *Detector) markOutliers() error {
 		if outlierCount > 0 {
 			d.DimsWithOutliers++
 		}
-		if d.hasDims {
+		if d.HasDims {
 			infoLog.Printf("Dim='%s': detected %d outliers", dim, outlierCount)
 		} else {
 			infoLog.Printf("Detected %d outliers", outlierCount)
@@ -1051,7 +1051,7 @@ func (d *Detector) notify() error {
 		return nil
 	}
 	var msg string
-	if !d.hasDims {
+	if !d.HasDims {
 		msg = fmt.Sprintf(
 			"%s Detector '%s' has found %d outliers.",
 			d.LastUpdate.Format("2006-01-02 15:04"),

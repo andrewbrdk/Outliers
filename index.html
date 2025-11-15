@@ -141,6 +141,8 @@ class XDetector extends HTMLElement {
 	#display_start = null;
 	#display_end = null;
 	#datepicker = null;
+	#filteredOutliersCount = null;
+	#filteredOutliersDimCount = null;
 
 	getDisplayedState() {
 		return {
@@ -174,6 +176,9 @@ class XDetector extends HTMLElement {
 		}
 		this.bindEvents();
 		this.drawCharts();
+		//todo: 
+		//await this.drawCharts();
+		//this.updateOutliersCountText();
 	}
 
 	bindEvents() {
@@ -198,12 +203,15 @@ class XDetector extends HTMLElement {
 		};
 
 		const dr = this.querySelector('.daterange');
-		const onDateRangeChange = () => {
+		const onDateRangeChange = async () => {
 			const startVal = this.#datepicker.selectedDates[0] ?? null;
 			const endVal = this.#datepicker.selectedDates[1] ?? null;
 			this.#display_start = startVal ? new Date(startVal) : null;
 			this.#display_end = endVal ? new Date(endVal) : null;
 			this.drawCharts();
+			//todo: 
+			//await this.drawCharts();
+			//this.updateOutliersCountText();
 		}
 		if (dr) dr.onchange = onDateRangeChange;
 	}
@@ -215,12 +223,6 @@ class XDetector extends HTMLElement {
 
 	async HTML() {
 		let outliers_text = '';
-		if (this.detector.TotalOutliers > 0) {
-			outliers_text = `${this.detector.TotalOutliers} outliers`;
-			if (this.detector.DimsWithOutliers > 1) {
-				outliers_text += ` in ${this.detector.DimsWithOutliers} series`;
-			}
-		}
 		let schedule_text = escapeHTML(this.detector.HCron);
 		let upd_text = this.detector.LastUpdate && this.detector.LastUpdate != "0001-01-01T00:00:00Z" ? this.formatDateTime(new Date(this.detector.LastUpdate)) : '-' ;
 
@@ -282,6 +284,9 @@ class XDetector extends HTMLElement {
 		const container = this.querySelector(".plots") || this;
 		container.innerHTML = "";
 
+		this.#filteredOutliersDimCount = 0;
+		this.#filteredOutliersCount = 0;
+
 		for (const [dim, points] of Object.entries(data.outliers)) {
 			if (!points.length) continue;
 
@@ -307,6 +312,9 @@ class XDetector extends HTMLElement {
 						   (!this.#display_end || t <= this.#display_end);
 				});
 			}
+			const ocnt = filteredPoints.filter(p => p.IsOutlier).length
+			this.#filteredOutliersCount += ocnt;
+			this.#filteredOutliersDimCount += (ocnt > 0) ? 1 : 0;
 
 			const x = filteredPoints.map(p => p.T);
 			const y = filteredPoints.map(p => p.Value);
@@ -372,6 +380,20 @@ class XDetector extends HTMLElement {
 				legend.classList.add('hidden');
 			};
 		}
+		//todo: move into this.update(), fix await issues
+		this.updateOutliersCountText();
+	}
+
+	updateOutliersCountText() {
+		const ot = this.querySelector('.outliers-text');
+		let outliers_text = '';
+		if (this.#filteredOutliersCount > 0) {
+			outliers_text = `${this.#filteredOutliersCount} ${this.#filteredOutliersCount > 1 ? 'outliers' : 'outlier'}`;
+			if (this.detector.HasDims) {
+				outliers_text += ` in ${this.#filteredOutliersDimCount} series`;
+			}
+		}
+		ot.textContent = outliers_text;
 	}
 
 	async onCheckOutliers() {
