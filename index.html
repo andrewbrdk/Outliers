@@ -158,11 +158,20 @@ class XDetector extends HTMLElement {
 	async update() {
 		this.innerHTML = await this.HTML();
 		const dr = this.querySelector('.daterange');
-		this.#datepicker = flatpickr(dr, 
-			{mode: "range", 
+		const pars = {
+			mode: "range", 
 			allowInput: true, 
 			dateFormat: "d.m.Y",
-		});
+		}	
+		this.#datepicker = flatpickr(dr, pars);
+		if (this.detector.PlotLookback) {
+			const today = new Date();
+			const startDate = new Date();
+			startDate.setDate(today.getDate() - this.detector.PlotLookback);
+			this.#datepicker.setDate([startDate, today])
+			this.#display_start = startDate;
+			this.#display_end = today;
+		}
 		this.bindEvents();
 		this.drawCharts();
 	}
@@ -204,8 +213,6 @@ class XDetector extends HTMLElement {
 		this.querySelectorAll('button').forEach(btn => btn.onclick = null);
 	}
 
-
-	
 	async HTML() {
 		let outliers_text = '';
 		if (this.detector.TotalOutliers > 0) {
@@ -224,12 +231,12 @@ class XDetector extends HTMLElement {
 		let collapse_sign_text = this.#collapsed ? '+' : '-';
 		let plots_hidden = this.#collapsed ? 'hidden' : '';
 
+		//todo: make explicit
 		let detector_info_html = '';
-		//todo: simplify?
 		const configKeys = [
 			"ConnectionName", "DataSQL", 
 			"OutputConnectionName", "OutputTable",
-			"CronSchedule", "NotifyEmails", 
+			"CronSchedule", "NotifyEmails", "PlotLookback",
 			"DetectionMethod",
 			"Lower", "Upper",
 			"AveragingWindow", "Percent", "Sigma", "Period",
@@ -249,7 +256,7 @@ class XDetector extends HTMLElement {
 				<button class="info">i</button>
 			</div>
 			<div class="date-range">
-				<input class="daterange" type="text" placeholder="Select date range">
+				<input class="daterange" type="text" placeholder="Date range">
 			</div>
 			<div class="outliers-text">${outliers_text}</div>
 			<div class="right">
@@ -300,7 +307,6 @@ class XDetector extends HTMLElement {
 						   (!this.#display_end || t <= this.#display_end);
 				});
 			}
-			if (!filteredPoints.length) continue;
 
 			const x = filteredPoints.map(p => p.T);
 			const y = filteredPoints.map(p => p.Value);
@@ -313,12 +319,15 @@ class XDetector extends HTMLElement {
 			if (this.detector.TimeColumnIsDate) {
 				time_format = "{YYYY}-{MM}-{DD}";
 			}
+			let xScale = { time: true };
+			if (this.#display_start !== null) xScale.min = this.#display_start.getTime() / 1000;
+			if (this.#display_end   !== null) xScale.max = this.#display_end.getTime() / 1000;
 
 			const opts = {
 				width: plotDiv.clientWidth,
 				height: 300,
 				padding: [null, null, null, 50], // top, right, bottom, left 
-				scales: { x: { time: true }, y: { auto: true } },
+				scales: { x: xScale, y: { auto: true } },
 				series: [
 					{ value: time_format },
 					{ label: "Value", stroke: "black", width: 2, points: {show: false} },
