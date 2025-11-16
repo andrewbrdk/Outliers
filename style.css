@@ -100,7 +100,7 @@ x-detector {
 			display: flex;
 			align-items: center;
 			gap: 10px;
-			flex: 30;
+			flex: 0 0 auto;
 			cursor: pointer;
 		}
 		.left h3 {
@@ -135,13 +135,14 @@ x-detector {
 			background-color: #eee;
 		}
 		.daterange {
-			flex: auto;
+			flex: 0 0 auto;
 			border: none;
 			font-style: italic;
 			outline: none;
+			margin: 0 15px;
 		}
 		.outliers-text {
-			flex: 40;
+			flex: 1 0 auto;
 			text-align: center;
 			font-style: italic;
 			min-height: 1em;
@@ -149,7 +150,7 @@ x-detector {
 			/* todo: center relative to the page */
 		}
 		.right {
-			flex: 30;
+			flex: 0 0 auto;
 			text-align: right;
 		}
 		.right .schedule {
