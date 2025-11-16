@@ -106,7 +106,7 @@ x-detector {
 		.left h3 {
 			margin: 0;
 			line-height: 1;
-			display: flex;
+			display: inline-flex;
 			align-items: center;
 		}
 		.left .info {
@@ -152,8 +152,13 @@ x-detector {
 			flex: 30;
 			text-align: right;
 		}
-		.schedule {
+		.right .schedule {
 			font-style: italic;
+			font-size: 0.9rem;
+			display: inline-block;
+			max-width: 120px;
+			vertical-align: middle;
+			margin: 0 5px;
 		}
 		button.update,
 		button.onoff {
