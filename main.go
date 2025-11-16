@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -43,6 +44,11 @@ var errorLog *log.Logger
 var OTL Outliers
 var CONF Config
 
+const (
+	StatusIdle    int32 = 0
+	StatusRunning int32 = 1
+)
+
 type Outliers struct {
 	connections map[string]Connection
 	notifiers   map[string]Notifier
@@ -61,30 +67,32 @@ type Config struct {
 }
 
 type Detector struct {
-	Title                string                   `toml:"title"`
-	Id                   int                      `toml:"-"`
-	ConnectionName       string                   `toml:"connection"`
-	DataSQL              string                   `toml:"data_sql"`
-	OutputConnectionName string                   `toml:"output_connection"`
-	OutputTable          string                   `toml:"output"`
-	DetectionMethod      string                   `toml:"detection_method"`
-	algorithm            DetectionAlgorithm       `toml:"-"`
-	points               map[string][]Point       `toml:"-"`
-	markedPoints         map[string][]MarkedPoint `toml:"-"`
-	LastUpdate           time.Time                `toml:"-"`
-	HasDims              bool                     `toml:"-"`
-	TimeColumnIsDate     bool                     `toml:"-"`
-	TotalOutliers        int                      `toml:"-"`
-	DimsOutliers         map[string]int           `toml:"-"`
-	DimsWithOutliers     int                      `toml:"-"`
-	CronSchedule         string                   `toml:"cron_schedule"`
-	HCron                string                   `toml:"-"`
-	cronID               cron.EntryID             `toml:"-"`
-	NextScheduled        time.Time                `toml:"-"`
-	OnOff                bool                     `toml:"-"`
-	NotifyEmails         []string                 `toml:"notify_emails"`
-	PlotLookback         int                      `toml:"plot_lookback"`
-	Config               DetectorConfig           `toml:"-"`
+	Title                string
+	Id                   int
+	ConnectionName       string
+	DataSQL              string
+	OutputConnectionName string
+	OutputTable          string
+	DetectionMethod      string
+	algorithm            DetectionAlgorithm
+	points               map[string][]Point
+	markedPoints         map[string][]MarkedPoint
+	LastUpdate           time.Time
+	HasDims              bool
+	TimeColumnIsDate     bool
+	TotalOutliers        int
+	DimsOutliers         map[string]int
+	DimsWithOutliers     int
+	CronSchedule         string
+	HCron                string
+	cronID               cron.EntryID
+	NextScheduled        time.Time
+	OnOff                bool
+	NotifyEmails         []string
+	PlotLookback         int
+	status               atomic.Int32
+	StatusCode           int32
+	Config               DetectorConfig
 	//todo: Config *DetectorConfig
 }
 
@@ -638,6 +646,12 @@ func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
 }
 
 func (d *Detector) detectOutliers() error {
+	if !d.compareAndSwap(StatusIdle, StatusRunning) {
+		return fmt.Errorf("detector %s is already running", d.Title)
+	}
+	defer d.setStatus(StatusIdle)
+	broadcastSSEUpdate(fmt.Sprintf(`{"status":"running", "detector":"%d"}`, d.Id))
+
 	infoLog.Printf("Detecting %s", d.Title)
 	err := d.readTimeSeries()
 	defer func() { d.points = nil }()
@@ -655,6 +669,19 @@ func (d *Detector) detectOutliers() error {
 	}
 	d.notify()
 	return nil
+}
+
+func (d *Detector) compareAndSwap(old, new int32) bool {
+	if d.status.CompareAndSwap(old, new) {
+		d.StatusCode = new
+		return true
+	}
+	return false
+}
+
+func (d *Detector) setStatus(newStatus int32) {
+	d.status.Store(newStatus)
+	d.StatusCode = newStatus
 }
 
 func (d *Detector) readTimeSeries() error {
@@ -1576,6 +1603,20 @@ func (e *EmailNotification) Notify(message string, d *Detector) error {
 	return nil
 }
 
+func combineRecipients(base, extra []string) []string {
+	seen := make(map[string]bool)
+	var all []string
+
+	for _, addr := range append(base, extra...) {
+		addr = strings.TrimSpace(addr)
+		if addr != "" && !seen[addr] {
+			seen[addr] = true
+			all = append(all, addr)
+		}
+	}
+	return all
+}
+
 func (n *SlackNotification) GetTitle() string {
 	return n.title
 }
@@ -1702,18 +1743,4 @@ func resolveEnvVar(s string) string {
 		val = os.Getenv(strings.TrimPrefix(s, "$"))
 	}
 	return val
-}
-
-func combineRecipients(base, extra []string) []string {
-	seen := make(map[string]bool)
-	var all []string
-
-	for _, addr := range append(base, extra...) {
-		addr = strings.TrimSpace(addr)
-		if addr != "" && !seen[addr] {
-			seen[addr] = true
-			all = append(all, addr)
-		}
-	}
-	return all
 }

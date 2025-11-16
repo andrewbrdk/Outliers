@@ -171,6 +171,7 @@ class XDetector extends HTMLElement {
 		let outliers_text = '';
 		let schedule_text = escapeHTML(this.detector.HCron);
 		let upd_text = this.detector.LastUpdate && this.detector.LastUpdate != "0001-01-01T00:00:00Z" ? this.formatDateTime(new Date(this.detector.LastUpdate)) : '-' ;
+		const upd_btn_text = this.detector.StatusCode == 0 ? 'Update' : 'Running';
 
 		let on_off_btn_hidden = this.detector.CronSchedule.trim() === '' ? 'hidden' : '';
 		let on_off_btn_text = this.detector.OnOff ? 'On' : 'Off';
@@ -209,7 +210,7 @@ class XDetector extends HTMLElement {
 			<div class="outliers-text">${outliers_text}</div>
 			<div class="right">
 				<span class="schedule">${schedule_text}</span>
-				<button class="update">Update</button>
+				<button class="update">${upd_btn_text}</button>
 				<button class="onoff ${on_off_btn_hidden} ${on_off_btn_off_class}">${on_off_btn_text}</button>
 			</div>
 		</div>
