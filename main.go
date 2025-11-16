@@ -57,6 +57,7 @@ type Config struct {
 	port     string
 	confFile string
 	password string
+	apiKey   string
 }
 
 type Detector struct {
@@ -225,6 +226,7 @@ func initConfig() {
 	CONF.port = ":9090"
 	CONF.confFile = "outliers.toml"
 	CONF.password = ""
+	CONF.apiKey = ""
 	if port := os.Getenv("OUTLIERS_PORT"); port != "" {
 		CONF.port = ":" + port
 	}
@@ -232,6 +234,7 @@ func initConfig() {
 		CONF.confFile = confFile
 	}
 	CONF.password = os.Getenv("OUTLIERS_PASSWORD")
+	CONF.apiKey = os.Getenv("OUTLIERS_API_KEY")
 }
 
 func generateRandomKey(size int) []byte {
@@ -1100,6 +1103,7 @@ func httpServer() {
 	http.HandleFunc("/outliers/update", outliersUpdateHandler)
 	http.HandleFunc("/outliers/plot", outliersPlotHandler)
 	http.HandleFunc("/outliers/onoff", outliersOnOffHandler)
+	http.HandleFunc("/api/update", apiDetectorsUpdate)
 	http.HandleFunc("/events", httpEvents)
 	log.Fatal(http.ListenAndServe(CONF.port, nil))
 }
@@ -1343,6 +1347,95 @@ func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
 		Status:   "ok",
 		Detector: d,
 	})
+}
+
+func httpCheckAPIAuth(w http.ResponseWriter, r *http.Request) (error, int) {
+	//todo: merge with httpCheckAuth
+	if CONF.apiKey == "" {
+		errorLog.Printf("API key is not configured | %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+		return errors.New("api key is not configured"), http.StatusInternalServerError
+	}
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return errors.New("missing or invalid Authorization header"), http.StatusUnauthorized
+	}
+	key := strings.TrimPrefix(auth, "Bearer ")
+	if key != CONF.apiKey {
+		return errors.New("invalid api key"), http.StatusForbidden
+	}
+	return nil, 200
+}
+
+func apiDetectorsUpdate(w http.ResponseWriter, r *http.Request) {
+	//todo: merge with outliersUpdateHandler
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	err, code := httpCheckAPIAuth(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), code)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	var body struct {
+		IDs    []int    `json:"id"`
+		Titles []string `json:"title"`
+	}
+	err = json.NewDecoder(r.Body).Decode(&body)
+	if err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if len(body.IDs) == 0 && len(body.Titles) == 0 {
+		http.Error(w, "missing id or title in body", http.StatusBadRequest)
+		return
+	}
+
+	OTL.mu.RLock()
+	defer OTL.mu.RUnlock()
+
+	detectorsToUpdate := make(map[int]*Detector)
+	for _, id := range body.IDs {
+		if d := OTL.Detectors[id]; d != nil {
+			detectorsToUpdate[d.Id] = d
+		}
+	}
+	for _, title := range body.Titles {
+		title = strings.TrimSpace(title)
+		if title == "" {
+			continue
+		}
+		for _, d := range OTL.Detectors {
+			if strings.EqualFold(d.Title, title) {
+				detectorsToUpdate[d.Id] = d
+			}
+		}
+	}
+
+	for _, det := range detectorsToUpdate {
+		go func(d *Detector) {
+			infoLog.Printf("API outlier detection triggered for '%s'", d.Title)
+			err = d.detectOutliers()
+			if err != nil {
+				errorLog.Printf("Error detecting outliers for '%s': %v", d.Title, err)
+			}
+			broadcastSSEUpdate(fmt.Sprintf(`{"status":"completed","detector":"%d"}`, d.Id))
+		}(det)
+	}
+
+	started := make(map[int]string)
+	for _, det := range detectorsToUpdate {
+		started[det.Id] = det.Title
+	}
+	resp := struct {
+		Status  string         `json:"status"`
+		Started map[int]string `json:"update_started"`
+	}{
+		Status:  "ok",
+		Started: started,
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 type sseClients struct {
