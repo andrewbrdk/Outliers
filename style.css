@@ -162,6 +162,7 @@ x-detector {
 			margin: 0 5px;
 		}
 		button.update,
+		button.cancel,
 		button.onoff {
 			display: inline-block;
 			background-color: white;
@@ -181,10 +182,12 @@ x-detector {
 			background-color: #ddd;
 		}
 		button.update:hover,
+		button.cancel:hover,
 		button.onoff:hover {
 			box-shadow: 0 0 0px 1px black;
 		}
 		button.update:active,
+		button.cancel:active,
 		button.onoff:active {
 			background-color: #eee;
 		}

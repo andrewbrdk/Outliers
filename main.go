@@ -92,6 +92,8 @@ type Detector struct {
 	PlotLookback         int
 	status               atomic.Int32
 	StatusCode           int32
+	ctx                  context.Context
+	cancelFunc           context.CancelFunc
 	Config               DetectorConfig
 	//todo: Config *DetectorConfig
 }
@@ -634,7 +636,6 @@ func (ot *Outliers) scheduleDetectorUpdate(d *Detector) {
 				errorLog.Printf("Error detecting outliers '%s': %v", d.Title, err)
 			}
 			d.NextScheduled = ot.cron.Entry(d.cronID).Next
-			broadcastSSEUpdate(fmt.Sprintf(`{"status":"completed", "detector":"%d"}`, d.Id))
 		}()
 	})
 	if err != nil {
@@ -649,8 +650,17 @@ func (d *Detector) detectOutliers() error {
 	if !d.compareAndSwap(StatusIdle, StatusRunning) {
 		return fmt.Errorf("detector %s is already running", d.Title)
 	}
-	defer d.setStatus(StatusIdle)
-	broadcastSSEUpdate(fmt.Sprintf(`{"status":"running", "detector":"%d"}`, d.Id))
+	defer func() {
+		d.setStatus(StatusIdle)
+		broadcastSSEUpdate(fmt.Sprintf(`{"event":"detector_updated", "id":"%d", "title":"%s"}`, d.Id, d.Title))
+	}()
+	broadcastSSEUpdate(fmt.Sprintf(`{"event":"detector_running", "id":"%d", "title":"%s"}`, d.Id, d.Title))
+
+	d.ctx, d.cancelFunc = context.WithCancel(context.Background())
+	defer func() {
+		d.ctx = nil
+		d.cancelFunc = nil
+	}()
 
 	infoLog.Printf("Detecting %s", d.Title)
 	err := d.readTimeSeries()
@@ -690,7 +700,7 @@ func (d *Detector) readTimeSeries() error {
 		return fmt.Errorf("detector %s: %v", d.Title, err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3600*time.Second)
+	ctx, cancel := context.WithTimeout(d.ctx, 3600*time.Second)
 	defer cancel()
 
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -715,6 +725,12 @@ func (d *Detector) readTimeSeries() error {
 	d.points = make(map[string][]Point)
 	var p Point
 	for rows.Next() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		if !d.HasDims {
 			if err := rows.Scan(&p.T, &p.Value); err != nil {
 				errorLog.Printf("Scan error: %v", err)
@@ -838,6 +854,12 @@ func (d *Detector) markOutliers() error {
 	d.DimsWithOutliers = 0
 
 	for dim, pts := range d.points {
+		select {
+		case <-d.ctx.Done():
+			return d.ctx.Err()
+		default:
+		}
+
 		marked, err := d.algorithm.Detect(pts)
 		if err != nil {
 			return fmt.Errorf("detection failed for dim %s: %v", dim, err)
@@ -876,6 +898,7 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 	}
 	//todo: interface
 	//todo: safe deref *da.Threshold, *da.Percent
+	//todo: cancel
 	var marked []MarkedPoint
 	if da.detectionMethod == "threshold" {
 		for _, p := range points {
@@ -1030,7 +1053,7 @@ func (d *Detector) writeResults() error {
 		CREATE INDEX IF NOT EXISTS idx_%[1]s_dim ON %[1]s (dim);
 		CREATE INDEX IF NOT EXISTS idx_%[1]s_outlier ON %[1]s (is_outlier);`, destTable)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	ctx, cancel := context.WithTimeout(d.ctx, 300*time.Second)
 	defer cancel()
 
 	if _, err := db.ExecContext(ctx, createTableQuery); err != nil {
@@ -1061,6 +1084,12 @@ func (d *Detector) writeResults() error {
 
 	for dim, mps := range d.markedPoints {
 		for _, mp := range mps {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
 			_, err := stmt.ExecContext(
 				ctx,
 				mp.T, d.Title, dim, mp.Value,
@@ -1116,6 +1145,17 @@ func (d *Detector) notify() error {
 	return nil
 }
 
+func (d *Detector) Cancel() error {
+	if d.status.Load() != StatusRunning {
+		return fmt.Errorf("detector %s is not running", d.Title)
+	}
+	if d.cancelFunc != nil {
+		d.cancelFunc()
+		return nil
+	}
+	return fmt.Errorf("detector %s has no cancelable context", d.Title)
+}
+
 type Response struct {
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
@@ -1128,6 +1168,7 @@ func httpServer() {
 	http.HandleFunc("/login", httpLogin)
 	http.HandleFunc("/outliers", httpOutliers)
 	http.HandleFunc("/outliers/update", outliersUpdateHandler)
+	http.HandleFunc("/outliers/cancel", outliersCancelHandler)
 	http.HandleFunc("/outliers/plot", outliersPlotHandler)
 	http.HandleFunc("/outliers/onoff", outliersOnOffHandler)
 	http.HandleFunc("/api/update", apiDetectorsUpdate)
@@ -1256,7 +1297,6 @@ func outliersUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			errorLog.Printf("Error detecting outliers for '%s': %v", det.Title, err)
 		}
-		broadcastSSEUpdate(fmt.Sprintf(`{"status":"completed", "detector":"%d"}`, d.Id))
 	}(d)
 
 	json.NewEncoder(w).Encode(struct {
@@ -1376,6 +1416,30 @@ func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func outliersCancelHandler(w http.ResponseWriter, r *http.Request) {
+	err, code, msg := httpCheckAuth(w, r)
+	if err != nil {
+		http.Error(w, msg, code)
+		return
+	}
+	id, ok := parseDetectorID(w, r)
+	if !ok {
+		return
+	}
+	d := OTL.Detectors[id]
+	if d == nil {
+		http.Error(w, "detector not found", http.StatusNotFound)
+		return
+	}
+	err = d.Cancel()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	infoLog.Printf("Cancel requested for detector %s", d.Title)
+	w.Write([]byte(`{"status":"cancelling"}`))
+}
+
 func httpCheckAPIAuth(w http.ResponseWriter, r *http.Request) (error, int) {
 	//todo: merge with httpCheckAuth
 	if CONF.apiKey == "" {
@@ -1447,7 +1511,6 @@ func apiDetectorsUpdate(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				errorLog.Printf("Error detecting outliers for '%s': %v", d.Title, err)
 			}
-			broadcastSSEUpdate(fmt.Sprintf(`{"status":"completed","detector":"%d"}`, d.Id))
 		}(det)
 	}
 

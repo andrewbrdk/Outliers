@@ -171,7 +171,8 @@ class XDetector extends HTMLElement {
 		let outliers_text = '';
 		let schedule_text = escapeHTML(this.detector.HCron);
 		let upd_text = this.detector.LastUpdate && this.detector.LastUpdate != "0001-01-01T00:00:00Z" ? this.formatDateTime(new Date(this.detector.LastUpdate)) : '-' ;
-		const upd_btn_text = this.detector.StatusCode == 0 ? 'Update' : 'Running';
+		const update_btn_hidden = this.detector.StatusCode == 0 ? '' : 'hidden';
+		const cancel_btn_hidden = this.detector.StatusCode == 0 ? 'hidden' : '';
 
 		let on_off_btn_hidden = this.detector.CronSchedule.trim() === '' ? 'hidden' : '';
 		let on_off_btn_text = this.detector.OnOff ? 'On' : 'Off';
@@ -210,7 +211,8 @@ class XDetector extends HTMLElement {
 			<div class="outliers-text">${outliers_text}</div>
 			<div class="right">
 				<span class="schedule">${schedule_text}</span>
-				<button class="update">${upd_btn_text}</button>
+				<button class="update ${update_btn_hidden}">Update</button>
+				<button class="cancel ${cancel_btn_hidden}">Cancel</button>
 				<button class="onoff ${on_off_btn_hidden} ${on_off_btn_off_class}">${on_off_btn_text}</button>
 			</div>
 		</div>
@@ -242,7 +244,10 @@ class XDetector extends HTMLElement {
 	bindEvents() {
 		this.unbindEvents();
 		let btn = this.querySelector('button.update');
-		if (btn) btn.onclick = () => this.onCheckOutliers();
+		if (btn) btn.onclick = () => this.updateDetector();
+		
+		btn = this.querySelector('button.cancel');
+		if (btn) btn.onclick = () => this.cancelDetectorUpdate();
 		
 		btn = this.querySelector('button.onoff');
 		if (btn) btn.onclick = () => this.onOff();
@@ -401,7 +406,7 @@ class XDetector extends HTMLElement {
 		ot.textContent = outliers_text;
 	}
 
-	async onCheckOutliers() {
+	async updateDetector() {
 		if (!this.detector) return;
 		try {
 			const res = await fetch(`/outliers/update?id=${encodeURIComponent(this.detector.Id)}`, {
@@ -412,7 +417,19 @@ class XDetector extends HTMLElement {
 			this.detector = result.detector;
 			await this.render();
 		} catch (err) {
-			console.error('Error checking outliers:', err);
+			console.error('Error updating detector:', err);
+		}
+	}
+
+	async cancelDetectorUpdate() {
+		if (!this.detector) return;
+		try {
+			const res = await fetch(`/outliers/cancel?id=${encodeURIComponent(this.detector.Id)}`, {
+            	method: 'POST'
+			});
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		} catch (err) {
+			console.error('Error cancelling detector update:', err);
 		}
 	}
 
