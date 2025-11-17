@@ -1156,6 +1156,20 @@ func (d *Detector) Cancel() error {
 	return fmt.Errorf("detector %s has no cancelable context", d.Title)
 }
 
+func (d *Detector) turnOnOff() {
+	if d.OnOff {
+		OTL.cron.Remove(d.cronID)
+		d.OnOff = false
+		d.NextScheduled = time.Time{}
+		infoLog.Printf("Detector '%s' turned OFF", d.Title)
+	} else {
+		d.OnOff = true
+		OTL.scheduleDetectorUpdate(d)
+		infoLog.Printf("Detector '%s' turned ON", d.Title)
+	}
+	broadcastSSEUpdate(fmt.Sprintf(`{"event":"detector_onoff", "id":"%d", "title":"%s"}`, d.Id, d.Title))
+}
+
 type Response struct {
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
@@ -1396,24 +1410,8 @@ func outliersOnOffHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"status":"error", "message":"detector not found"}`, http.StatusNotFound)
 		return
 	}
-	if d.OnOff {
-		OTL.cron.Remove(d.cronID)
-		d.OnOff = false
-		d.NextScheduled = time.Time{}
-		infoLog.Printf("Detector '%s' turned OFF", d.Title)
-	} else {
-		d.OnOff = true
-		OTL.scheduleDetectorUpdate(d)
-		infoLog.Printf("Detector '%s' turned ON", d.Title)
-	}
-
-	json.NewEncoder(w).Encode(struct {
-		Status   string    `json:"status"`
-		Detector *Detector `json:"detector"`
-	}{
-		Status:   "ok",
-		Detector: d,
-	})
+	d.turnOnOff()
+	w.Write([]byte(`{"status": "onoff"}`))
 }
 
 func outliersCancelHandler(w http.ResponseWriter, r *http.Request) {
@@ -1431,12 +1429,12 @@ func outliersCancelHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "detector not found", http.StatusNotFound)
 		return
 	}
+	infoLog.Printf("Cancel requested for detector %s", d.Title)
 	err = d.Cancel()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	infoLog.Printf("Cancel requested for detector %s", d.Title)
 	w.Write([]byte(`{"status":"cancelling"}`))
 }
 
