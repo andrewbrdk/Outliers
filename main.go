@@ -1313,13 +1313,7 @@ func outliersUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}(d)
 
-	json.NewEncoder(w).Encode(struct {
-		Status   string    `json:"status"`
-		Detector *Detector `json:"detector"`
-	}{
-		Status:   "started",
-		Detector: d,
-	})
+	w.Write([]byte(`{"status": "running"}`))
 }
 
 func outliersPlotHandler(w http.ResponseWriter, r *http.Request) {

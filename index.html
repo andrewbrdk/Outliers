@@ -408,43 +408,31 @@ class XDetector extends HTMLElement {
 
 	async updateDetector() {
 		if (!this.detector) return;
-		try {
-			const res = await fetch(`/outliers/update?id=${encodeURIComponent(this.detector.Id)}`, {
-            	method: 'POST'
-			});
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const result = await res.json();
-			this.detector = result.detector;
-			await this.render();
-		} catch (err) {
-			console.error('Error updating detector:', err);
+		const res = await fetch(`/outliers/update?id=${encodeURIComponent(this.detector.Id)}`, {
+        	method: 'POST'
+		});
+		if (!res.ok) {
+			console.error('Error updating detector:', res.status, res.statusText);
 		}
 	}
 
 	async cancelDetectorUpdate() {
 		if (!this.detector) return;
-		try {
-			const res = await fetch(`/outliers/cancel?id=${encodeURIComponent(this.detector.Id)}`, {
-            	method: 'POST'
-			});
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-		} catch (err) {
-			console.error('Error cancelling detector update:', err);
+		const res = await fetch(`/outliers/cancel?id=${encodeURIComponent(this.detector.Id)}`, {
+        	method: 'POST'
+		});
+		if (!res.ok) {
+			console.error('Error cancelling detector update:', res.status, res.statusText);
 		}
 	}
 
 	async onOff() {
 		if (!this.detector) return;
-		try {
-			const res = await fetch(`/outliers/onoff?id=${encodeURIComponent(this.detector.Id)}`, {
-            	method: 'POST'
-			});
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const result = await res.json();
-			this.detector = result.detector;
-			await this.render();
-		} catch (err) {
-			console.error('Error turning on-off:', err);
+		const res = await fetch(`/outliers/onoff?id=${encodeURIComponent(this.detector.Id)}`, {
+			method: 'POST'
+		});
+		if (!res.ok) {
+			console.error('Error turning on-off:', res.status, res.statusText);
 		}
 	}
 
