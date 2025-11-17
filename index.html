@@ -18,7 +18,6 @@
 class XOutliers extends HTMLElement {
 	#login = null;
 	#detectors = null;
-	#detectorsData = null;
 	#evSrc = null;
 	
 	constructor() {
@@ -58,17 +57,18 @@ class XOutliers extends HTMLElement {
 	}
 
 	async renderDetectors(data) {
-		this.#detectorsData = data;
+		let detectorsData = data;
 		let xdetectors = [];
-		let sorted = Object.values(this.#detectorsData['Detectors']).sort((a, b) => {
+		let sorted = Object.values(detectorsData['Detectors']).sort((a, b) => {
         	return a.Title.localeCompare(b.Title);
     	});
-		for await (const [_, det] of sorted.entries()) {
+		for await (const [_, d] of sorted.entries()) {
 			let xd = document.createElement('x-detector');
-			let existing_detector = this.#detectors.querySelector(`#detector${det.Id}`);
+			let existing_detector = this.#detectors.querySelector(`#detector${d.Id}`);
 			let {collapsed} = existing_detector ? existing_detector.getDisplayedState() : {collapsed: false};
-			await xd.init(det, collapsed);			
+			await xd.init(d, collapsed);			
 			xdetectors.push(xd);
+			//todo: store this.#xdetectors = {id: xd} map
 		}
 		this.#detectors.replaceChildren(...xdetectors);
 	}
@@ -76,15 +76,39 @@ class XOutliers extends HTMLElement {
 	setupEventSource() {
 		if (!this.#evSrc || this.#evSrc.readyState === EventSource.CLOSED) {
 			this.#evSrc = new EventSource("/events");
-			this.#evSrc.onmessage = (e) => {
-				//todo: only update changed detector
-				this.renderPage();
-			};
+			this.#evSrc.onmessage = (e) => this.handleServerEvent(e);
 			this.#evSrc.onerror = () => {
 				console.error("EventSource connection error.");
 			};
 		}
 	}
+
+	handleServerEvent(e) {
+		let msg;
+		try {
+			msg = JSON.parse(e.data);
+		} catch {
+			console.warn("Invalid SSE message:", e.data);
+			return;
+		}
+		if (!msg.event) {
+			console.warn("Missing .event:", msg);
+			return;
+		}
+
+		if (msg.event == "config_reload") {
+			this.renderPage();
+		} else if (["detector_updated", "detector_running", "detector_onoff"].includes(msg.event)) {
+			const el = document.querySelector(`#detector${msg.id}`);
+			if (!el || (el.detector.Title != msg.title)) { 
+				this.renderPage(); 
+				return; 
+			}
+			el.updateState(); 
+		} else {
+			console.warn("Unknown event:", msg);
+		}
+	};
 
 	closeEventSource() {
 		if (this.#evSrc) {
@@ -154,6 +178,18 @@ class XDetector extends HTMLElement {
 		this.detector = detector;
 		this.#collapsed = collapsed;
 		this.id = `detector${this.detector.Id}`;
+		await this.render();
+	}
+
+	async updateState() {
+		//todo: fetch by id
+		const res = await fetch(`/outliers`);
+		if (!res.ok) return;
+		const data = await res.json();
+		if (!data || !data.Detectors) return;
+		const d = data.Detectors[this.detector.Id];
+		if (!d) return;
+		this.detector = d
 		await this.render();
 	}
 
