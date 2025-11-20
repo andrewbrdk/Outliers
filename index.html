@@ -401,6 +401,9 @@ class XDetector extends HTMLElement {
     		plotWrapper.appendChild(legendDiv);
 			container.appendChild(plotWrapper);
 
+			//todo: set non-min width for collapsed
+			if (this.#collapsed) {await this.showHide();}
+
 			const opts = {
 				width: plotDiv.clientWidth,
 				height: 300,
