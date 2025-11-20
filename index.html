@@ -378,8 +378,9 @@ class XDetector extends HTMLElement {
 				time_format = "{YYYY}-{MM}-{DD}";
 			}
 			let xScale = { time: true };
-			if (this.#display_start !== null) xScale.min = this.#display_start.getTime() / 1000;
-			if (this.#display_end   !== null) xScale.max = this.#display_end.getTime() / 1000;
+			//todo: auto x range instead of Math.min(...x), Math.max(...x)
+			xScale.min = this.#display_start !== null ? this.#display_start.getTime() / 1000 : Math.min(...x);
+			xScale.max = this.#display_end !== null ? this.#display_end.getTime() / 1000 : Math.max(...x);
 
 			if (this.#uplots[dim]) {
 				this.#uplots[dim].setData(uplotData);
