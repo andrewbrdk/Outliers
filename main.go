@@ -1082,6 +1082,7 @@ func (d *Detector) writeResults() error {
 	}
 	defer stmt.Close()
 
+	//todo: speedup
 	for dim, mps := range d.markedPoints {
 		for _, mp := range mps {
 			select {

@@ -81,7 +81,7 @@ title = "Wiki Pageviews Threshold"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-backsteps = 90
+plot_lookback = 90
 cron_schedule = "*/5 * * * *"
 notify_emails = [""]
 detection_method = 'threshold'
@@ -97,7 +97,7 @@ title = "Wiki Pageviews Stddev"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-backsteps = 90
+plot_lookback = 90
 cron_schedule = "*/5 * * * *"
 notify_emails = [""]
 detection_method = 'dist_from_mean'
@@ -114,7 +114,7 @@ title = "Wiki Pageviews IQR"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-backsteps = 90
+plot_lookback = 90
 cron_schedule = "*/5 * * * *"
 notify_emails = [""]
 detection_method = 'iqr'
