@@ -200,6 +200,11 @@ class XDetector extends HTMLElement {
 		this.innerHTML = await this.HTML();
 		this.setupDatePicker();
 		this.bindEvents();
+		//todo: move into HTML()
+		const p = this.querySelector('.plots');
+		for (const [dim, wrapper] of Object.entries(this.#plotWrappers)) {
+			p.appendChild(wrapper);
+		}
 		this.drawCharts();
 		//todo: 
 		//await this.drawCharts();
@@ -368,8 +373,17 @@ class XDetector extends HTMLElement {
 			const upper = filteredPoints.map(p => p.UpperBound.Valid ? p.UpperBound.Float64 : null);
 			const uplotData = [x, y, outliers, lower, upper];
 
+			let time_format = "{YYYY}-{MM}-{DD} {HH}:{mm}";
+			if (this.detector.TimeColumnIsDate) {
+				time_format = "{YYYY}-{MM}-{DD}";
+			}
+			let xScale = { time: true };
+			if (this.#display_start !== null) xScale.min = this.#display_start.getTime() / 1000;
+			if (this.#display_end   !== null) xScale.max = this.#display_end.getTime() / 1000;
+
 			if (this.#uplots[dim]) {
 				this.#uplots[dim].setData(uplotData);
+				this.#uplots[dim].setScale("x", xScale);
 				continue;
 			}
 
@@ -386,14 +400,6 @@ class XDetector extends HTMLElement {
     		legendDiv.classList.add("uplot-legend");
     		plotWrapper.appendChild(legendDiv);
 			container.appendChild(plotWrapper);
-
-			let time_format = "{YYYY}-{MM}-{DD} {HH}:{mm}";
-			if (this.detector.TimeColumnIsDate) {
-				time_format = "{YYYY}-{MM}-{DD}";
-			}
-			let xScale = { time: true };
-			if (this.#display_start !== null) xScale.min = this.#display_start.getTime() / 1000;
-			if (this.#display_end   !== null) xScale.max = this.#display_end.getTime() / 1000;
 
 			const opts = {
 				width: plotDiv.clientWidth,
