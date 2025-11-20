@@ -161,6 +161,9 @@ class XLogin extends HTMLElement {
 
 class XDetector extends HTMLElement {
 	detector = null;
+	//use a combined dict for uplots and wrappers?
+	#uplots = {};
+	#plotWrappers = {};
 	#collapsed = false;
 	#display_start = null;
 	#display_end = null;
@@ -256,6 +259,7 @@ class XDetector extends HTMLElement {
 			${detector_info_html}
 		</div>
 		<div class="plots ${plots_hidden}"></div>`;
+		//todo: existing plots are discarded; attach existing plotWrappers 
 		return html;
 	}
 
@@ -327,28 +331,23 @@ class XDetector extends HTMLElement {
 		const data = await res.json();
 		if (!data || !data.outliers) return;
 
-		const container = this.querySelector(".plots") || this;
-		container.innerHTML = "";
+		const container = this.querySelector(".plots");
 
 		this.#filteredOutliersDimCount = 0;
 		this.#filteredOutliersCount = 0;
 
+		const receivedDims = new Set(Object.keys(data.outliers));
+		for (const dim of Object.keys(this.#uplots)) {
+			if (!receivedDims.has(dim)) {
+				this.#uplots[dim].destroy();
+				this.#plotWrappers[dim].remove();
+				delete this.#uplots[dim];
+				delete this.#plotWrappers[dim];
+			}
+		}
+
 		for (const [dim, points] of Object.entries(data.outliers)) {
 			if (!points.length) continue;
-
-			const plotWrapper = document.createElement("div");
-			plotWrapper.classList.add("plot-wrapper");
-			const dimLabel = document.createElement("div");
-			dimLabel.classList.add("dim-title");
-			dimLabel.innerHTML = `<span class="collapse-fill">-</span>${escapeHTML(dim)}`;
-			plotWrapper.appendChild(dimLabel);
-			const plotDiv = document.createElement("div");
-			plotDiv.classList.add("uplot");
-			plotWrapper.appendChild(plotDiv);
-			const legendDiv = document.createElement("div");
-    		legendDiv.classList.add("uplot-legend");
-    		plotWrapper.appendChild(legendDiv);
-			container.appendChild(plotWrapper);
 
 			let filteredPoints = points;
 			if (this.#display_start || this.#display_end) {
@@ -368,6 +367,25 @@ class XDetector extends HTMLElement {
 			const lower = filteredPoints.map(p => p.LowerBound.Valid ? p.LowerBound.Float64 : null);
 			const upper = filteredPoints.map(p => p.UpperBound.Valid ? p.UpperBound.Float64 : null);
 			const uplotData = [x, y, outliers, lower, upper];
+
+			if (this.#uplots[dim]) {
+				this.#uplots[dim].setData(uplotData);
+				continue;
+			}
+
+			const plotWrapper = document.createElement("div");
+			plotWrapper.classList.add("plot-wrapper");
+			const dimLabel = document.createElement("div");
+			dimLabel.classList.add("dim-title");
+			dimLabel.innerHTML = `<span class="collapse-fill">-</span>${escapeHTML(dim)}`;
+			plotWrapper.appendChild(dimLabel);
+			const plotDiv = document.createElement("div");
+			plotDiv.classList.add("uplot");
+			plotWrapper.appendChild(plotDiv);
+			const legendDiv = document.createElement("div");
+    		legendDiv.classList.add("uplot-legend");
+    		plotWrapper.appendChild(legendDiv);
+			container.appendChild(plotWrapper);
 
 			let time_format = "{YYYY}-{MM}-{DD} {HH}:{mm}";
 			if (this.detector.TimeColumnIsDate) {
@@ -415,16 +433,15 @@ class XDetector extends HTMLElement {
 				},
 			};
 			
-			new uPlot(opts, uplotData, plotDiv);
+			const u = new uPlot(opts, uplotData, plotDiv);
 			const legend = legendDiv.querySelector(".u-legend");
 			legend.classList.add('hidden');
 			const plotArea = plotDiv.querySelector(".u-over");
-			plotArea.onmouseenter = () => {
-				legend.classList.remove('hidden');
-			};
-			plotArea.onmouseleave = () => {
-				legend.classList.add('hidden');
-			};
+			plotArea.onmouseenter = () => { legend.classList.remove('hidden'); };
+			plotArea.onmouseleave = () => { legend.classList.add('hidden'); };
+
+			this.#uplots[dim] = u;
+            this.#plotWrappers[dim] = plotWrapper;
 		}
 		//todo: move into this.render(), fix await issues
 		this.updateOutliersCountText();
