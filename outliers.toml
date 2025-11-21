@@ -22,57 +22,69 @@ from = "$SMTP_USERNAME"
 common_recipients = [""]
 
 [[detectors]]
-title = "Wiki Pageviews"
+title = "En.wiki Pageviews"
 connection = "main_pg"
-data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
+data_sql = "select dt as t, views as value from wiki_pageviews where project = 'en.wikipedia'"
 output = "wiki_pageviews_outliers"
-plot_lookback = 90
-cron_schedule = "*/5 * * * *"
+cron_schedule = "10 5 * * *"
 notify_emails = [""]
+plot_lookback = 90
 detection_method = 'dist_from_mean'
 percent = 10
 avg_window = 30
 
 [[detectors]]
-title = "Wiki Pageviews Stddev"
+title = "En.wiki Pageviews, n*Sigma"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-cron_schedule = "*/5 * * * *"
 notify_emails = [""]
+plot_lookback = 90
 detection_method = 'dist_from_mean'
 avg_window = 30
 sigma = 3
 
 [[detectors]]
-title = "Wiki Pageviews IQR"
+title = "En.wiki Pageviews, Period"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-plot_lookback = 90
-cron_schedule = "*/5 * * * *"
 notify_emails = [""]
+plot_lookback = 90
+detection_method = 'dist_from_mean'
+avg_window = 60
+period = 7
+percent = 7
+
+[[detectors]]
+title = "En.wiki Pageviews, IQR"
+connection = "main_pg"
+data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
+output = "wiki_pageviews_outliers"
+cron_schedule = "15 5 * * *"
+notify_emails = [""]
+plot_lookback = 90
 detection_method = 'iqr'
 iqr_window = 60
 iqr_range = 1.5
 
-
 [[detectors]]
-title = "Wiki Pageviews Projects"
-connection = "main_pg"
-data_sql = "select dt::timestamp as t, project as dim, views as value from wiki_pageviews"
-output = "wiki_pageviews_outliers"
-plot_lookback = 90
-detection_method = 'dist_from_mean'
-percent = 20
-avg_window = 30
-
-[[detectors]]
-title = "Wiki Pageviews Threshold"
+title = "En.wiki Pageviews, Threshold"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-cron_schedule = "*/5 * * * *"
 notify_emails = [""]
+plot_lookback = 90
 detection_method = 'threshold'
 lower = 220000000
+
+[[detectors]]
+title = "Wiki Pageviews, Projects"
+connection = "main_pg"
+data_sql = "select dt::timestamp as t, project as dim, views as value from wiki_pageviews"
+output = "wiki_pageviews_outliers"
+cron_schedule = "15 5 * * *"
+plot_lookback = 90
+detection_method = 'dist_from_mean'
+avg_window = 30
+percent = 10
