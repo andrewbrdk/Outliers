@@ -64,7 +64,7 @@ Config options:
 title = "main_pg"
 type = "postgres"
 connection = "postgres://pguser:password123@localhost:5432/outliers"
-#connection = "$PG_CONSTR"
+#connection = "$PG_CONSTR"  # prefix with $ to parse from the env
 max_open_conns = 10         # 10 by default
 max_idle_conns = 5          # 3 by default
 conn_max_lifetime = "60m"   # 30 min by default
@@ -85,50 +85,78 @@ password = "$SMTP_PASSWORD"
 from = "$SMTP_USERNAME"
 common_recipients = [""]
 
-# Threshold Detector
-# detection_method = 'threshold' 
-# At least one of 'lower', 'upper' boundaries should be specified.
+# Threshold
+# Outlier: val < lower || val > upper
+# detection_method = 'threshold'
+# At least one of the 'lower' or 'upper' boundaries must be specified.
 [[detectors]]
-title = "Wiki Pageviews Threshold"
+title = "En.wiki Pageviews, Threshold"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-plot_lookback = 90
-cron_schedule = "*/5 * * * *"
 notify_emails = [""]
+plot_lookback = 90
 detection_method = 'threshold'
 lower = 220000000
 upper = 300000000
 
-# N Standard Deviations from the Mean Detector
-# For each point takes points avg_window back,
-# computes average and std. deviation.
-# Mark the current point as an outlier if it is outside of average +- N * std.deviation interval
+# Percent from the Mean
+# For each point, looks back over the previous 'avg_window' points and computes their average.
+# Marks the current point as an outlier if it falls outside the interval: average * (1 +- percent/100).
+title = "En.wiki Pageviews"
+connection = "main_pg"
+data_sql = "select dt as t, views as value from wiki_pageviews where project = 'en.wikipedia'"
+output = "wiki_pageviews_outliers"
+cron_schedule = "10 5 * * *"
+notify_emails = [""]
+plot_lookback = 90
+detection_method = 'dist_from_mean'
+avg_window = 30
+percent = 10
+
+# N Standard Deviations from the Mean
+# For each point, looks back over the previous 'avg_window' points and computes the average and standard deviation.
+# Marks the current point as an outlier if it falls outside the interval: average +- 'sigma' * standard deviation.
 [[detectors]]
-title = "Wiki Pageviews Stddev"
+title = "En.wiki Pageviews, n*Sigma"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-plot_lookback = 90
-cron_schedule = "*/5 * * * *"
 notify_emails = [""]
+plot_lookback = 90
 detection_method = 'dist_from_mean'
 avg_window = 30
 sigma = 3
 
-# Interquartile Range Detector
-# For each point takes points iqr_window back,
-# computes iqr_distance between q1=25 and q3=75 percentile.
-# Mark the current point as an outlier if it is outside of
-# q1 - iqr_range * iqr_distance, q3 + iqr_range * iqr_distance.
+# Distance from the Mean with Period
+# For each point, looks back over the previous 'avg_window' points.
+# Selects every i*'period' point (i = 1, 2, ...) within 'avg_window'.
+# Uses these points to compute the average.
 [[detectors]]
-title = "Wiki Pageviews IQR"
+title = "En.wiki Pageviews, Period"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
-plot_lookback = 90
-cron_schedule = "*/5 * * * *"
 notify_emails = [""]
+plot_lookback = 90
+detection_method = 'dist_from_mean'
+avg_window = 60
+period = 7
+percent = 7
+
+# Interquartile Range (IQR)
+# For each point, looks back over the previous 'iqr_window' points.
+# Computes the interquartile range (IQR) between Q1 (25th percentile) and Q3 (75th percentile).
+# Marks the current point as an outlier if it falls below 
+# Q1 - 'iqr_range' * IQR or above Q3 + 'iqr_range' * IQR.
+[[detectors]]
+title = "En.wiki Pageviews, IQR"
+connection = "main_pg"
+data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
+output = "wiki_pageviews_outliers"
+cron_schedule = "15 5 * * *"
+notify_emails = [""]
+plot_lookback = 90
 detection_method = 'iqr'
 iqr_window = 60
 iqr_range = 1.5
