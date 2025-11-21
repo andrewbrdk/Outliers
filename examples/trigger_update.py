@@ -6,7 +6,7 @@ API_KEY = "your_api_key"
 
 payload = {
     "id": [0, 1],            
-    "title": ["Wiki Pageviews Threshold"]
+    "title": ["En.wiki Pageviews, Threshold"]
 }
 
 headers = {
