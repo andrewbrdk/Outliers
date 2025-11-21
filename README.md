@@ -1,9 +1,9 @@
 ### Outliers
 
-Timeseries outliers detector.
+Time-series outlier detector.
 
 <div align="center">
-    <img src="https://i.postimg.cc/GrBj3QTD/outliers.png" alt="outliers" width="700">
+    <img src="https://i.postimg.cc/Qspy9Srf/outliers2.png" alt="outliers" width="700">
 </div>
 
 The service starts at [http://localhost:9090](http://localhost:9090) after the following commands:
@@ -14,6 +14,14 @@ cd Outliers
 go get outliers
 go build
 ./outliers
+```
+
+Docker compose starts a playground to run examples:  
+- Outliers: [http://localhost:9090](http://localhost:9090)
+- PostgreSQL: [http://localhost:5432](http://localhost:5432)
+- Pgweb: [http://localhost:8081](http://localhost:8081)
+```bash
+docker compose up --build
 ```
 
 Optional environmental variables:
