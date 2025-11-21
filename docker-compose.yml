@@ -1,24 +1,24 @@
 services:
-  # outliers:
-  #   image: outliers
-  #   container_name: outliers_web
-  #   build:
-  #     context: ./
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     # host:container
-  #     - "9090:9090"
-  #   volumes:
-  #     - ./outliers.toml:/app/outliers.toml
-  #     - /etc/timezone:/etc/timezone:ro
-  #     - /etc/localtime:/etc/localtime:ro
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   #environment:
-  #     #OUTLIERS_CONF: /app/outliers.toml
-  #     #OUTLIERS_PORT: 9090
-  #     #OUTLIERS_PASSWORD: "qwerty"
+  outliers:
+    image: outliers
+    container_name: outliers_web
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    ports:
+      # host:container
+      - "9090:9090"
+    volumes:
+      - ./outliers.toml:/app/outliers.toml
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    #environment:
+      #OUTLIERS_CONF: /app/outliers.toml
+      #OUTLIERS_PORT: 9090
+      #OUTLIERS_PASSWORD: "qwerty"
 
   postgres:
     image: postgres:16
