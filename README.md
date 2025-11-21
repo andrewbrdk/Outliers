@@ -35,8 +35,10 @@ python ./examples/wiki_pageviews.py --start_date 2024-01-01 --end_date 2025-11-0
 
 Optional environmental variables:
 ```bash
-OUTLIERS_PORT=":9090"                    # web server port
-OUTLIERS_CONF="./outliers.toml"          # config file
+OUTLIERS_PORT=":9090"              # web server port
+OUTLIERS_CONF="./outliers.toml"    # config file
+OUTLIERS_PASSWORD=""               # web interface password
+OUTLIERS_API_KEY=""                # API key, see ./examples/trigger_update.py    
 ```
 
 Config example:
