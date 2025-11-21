@@ -3,7 +3,7 @@
 Time-series outlier detector.
 
 <div align="center">
-    <img src="https://i.postimg.cc/Qspy9Srf/outliers2.png" alt="outliers" width="700">
+    <img src="https://i.postimg.cc/XVsj9FBX/outliers3.png" alt="outliers" width="800">
 </div>
 
 The service starts at [http://localhost:9090](http://localhost:9090) after the following commands:
@@ -17,12 +17,13 @@ go build
 ```
 
 Docker compose starts a playground to run examples:  
-- Outliers: [http://localhost:9090](http://localhost:9090)
-- PostgreSQL: localhost:5432
-- Pgweb: [http://localhost:8081](http://localhost:8081)
 ```bash
 docker compose up --build
 ```
+- Outliers: [http://localhost:9090](http://localhost:9090)
+- PostgreSQL: localhost:5432
+- Pgweb: [http://localhost:8081](http://localhost:8081)
+
 
 Optional environmental variables:
 ```bash
@@ -48,9 +49,10 @@ connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
 cron_schedule = "05 03 * * *"
+plot_lookback = 90
 detection_method = 'dist_from_mean'
-percent = 10
 avg_window = 30
+percent = 10
 ```
 
 Config options:
