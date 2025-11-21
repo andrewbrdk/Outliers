@@ -21,6 +21,12 @@ Docker Compose starts a playground for running examples.
 Make sure to set the correct PostgreSQL connection string in the [config](https://github.com/andrewbrdk/Outliers/blob/9b6e32c874426e9839964bc070d393085b909ca2/outliers.toml#L4). 
 ```bash
 docker compose up --build
+
+# Load example data
+python -m venv pyvenv
+source pyvenv/bin/activate
+pip install requests psycopg2-binary
+python ./examples/wiki_pageviews.py --start_date 2024-01-01 --end_date 2025-11-01
 ```
 - Outliers: [http://localhost:9090](http://localhost:9090)
 - PostgreSQL: localhost:5432
