@@ -1,8 +1,8 @@
 [[connections]]
 title = "main_pg"
 type = "postgres"
-#connection = "postgres://pguser:password123@postgres:5432/outliers"
-connection =  "postgres://pguser:password123@localhost:5432/outliers"
+#connection = "postgres://pguser:password123@postgres:5432/outliers"  # docker
+connection =  "postgres://pguser:password123@localhost:5432/outliers" # local
 max_open_conns = 10
 max_idle_conns = 2
 conn_max_lifetime = "30m"

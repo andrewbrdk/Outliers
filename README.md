@@ -18,7 +18,7 @@ go build
 
 Docker compose starts a playground to run examples:  
 - Outliers: [http://localhost:9090](http://localhost:9090)
-- PostgreSQL: [http://localhost:5432](http://localhost:5432)
+- PostgreSQL: localhost:5432
 - Pgweb: [http://localhost:8081](http://localhost:8081)
 ```bash
 docker compose up --build

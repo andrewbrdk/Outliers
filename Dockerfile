@@ -4,7 +4,8 @@ RUN apk add --no-cache \
     bash \
     git
 
-ADD main.go go.mod index.html style.css ./libs /app/
+COPY main.go go.mod index.html style.css /app/
+COPY libs /app/libs
 
 WORKDIR /app
 RUN go get outliers
