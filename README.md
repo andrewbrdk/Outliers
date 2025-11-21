@@ -6,7 +6,8 @@ Time-series outlier detector.
     <img src="https://i.postimg.cc/XVsj9FBX/outliers3.png" alt="outliers" width="800">
 </div>
 
-The service starts at [http://localhost:9090](http://localhost:9090) after the following commands:
+
+Start the service at [http://localhost:9090](http://localhost:9090) with the following commands:
 
 ```bash
 git clone https://github.com/andrewbrdk/Outliers
@@ -16,7 +17,8 @@ go build
 ./outliers
 ```
 
-Docker compose starts a playground to run examples:  
+Docker Compose starts a playground for running examples.
+Make sure to set the correct PostgreSQL connection string in the [config](https://github.com/andrewbrdk/Outliers/blob/9b6e32c874426e9839964bc070d393085b909ca2/outliers.toml#L4). 
 ```bash
 docker compose up --build
 ```
