@@ -12,7 +12,6 @@ Start the service at [http://localhost:9090](http://localhost:9090) with the fol
 ```bash
 git clone https://github.com/andrewbrdk/Outliers
 cd Outliers
-mkdir -p ./dist
 wget -P ./dist https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/{uPlot.iife.min.js,uPlot.min.css}
 wget -P ./dist https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/{flatpickr.min.js,flatpickr.min.css}
 go get outliers
