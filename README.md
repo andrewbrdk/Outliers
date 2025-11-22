@@ -56,13 +56,13 @@ type = "slack"
 webhook_url = "$SLACK_WEBHOOK"
 
 [[detectors]]
-title = "Wiki Pageviews"
+title = "En.wiki Pageviews"
 connection = "main_pg"
 data_sql = "select dt as t, views as value from wiki_pageviews where project='en.wikipedia'"
 output = "wiki_pageviews_outliers"
 cron_schedule = "05 03 * * *"
 plot_lookback = 90
-detection_method = 'dist_from_mean'
+detection_method = 'dev_from_mean'
 avg_window = 30
 percent = 10
 ```
@@ -110,7 +110,7 @@ detection_method = 'threshold'
 lower = 220000000
 upper = 300000000
 
-# Percent from the Mean
+# Deviation from the Mean, Percent
 # For each point, looks back over the previous 'avg_window' points and computes their average.
 # Marks the current point as an outlier if it falls outside the interval: average * (1 +- percent/100).
 title = "En.wiki Pageviews"
@@ -120,7 +120,7 @@ output = "wiki_pageviews_outliers"
 cron_schedule = "10 5 * * *"
 notify_emails = [""]
 plot_lookback = 90
-detection_method = 'dist_from_mean'
+detection_method = 'dev_from_mean'
 avg_window = 30
 percent = 10
 
@@ -134,11 +134,11 @@ data_sql = "select dt as t, views as value from wiki_pageviews where project='en
 output = "wiki_pageviews_outliers"
 notify_emails = [""]
 plot_lookback = 90
-detection_method = 'dist_from_mean'
+detection_method = 'dev_from_mean'
 avg_window = 30
 sigma = 3
 
-# Distance from the Mean with Period
+# Deviation from the Mean, Period
 # For each point, looks back over the previous 'avg_window' points.
 # Selects every i*'period' point (i = 1, 2, ...) within 'avg_window'.
 # Uses these points to compute the average.
@@ -149,7 +149,7 @@ data_sql = "select dt as t, views as value from wiki_pageviews where project='en
 output = "wiki_pageviews_outliers"
 notify_emails = [""]
 plot_lookback = 90
-detection_method = 'dist_from_mean'
+detection_method = 'dev_from_mean'
 avg_window = 60
 period = 7
 percent = 7

@@ -111,7 +111,7 @@ type DetectorConfig struct {
 	// threshold
 	Lower *float64 `toml:"lower"`
 	Upper *float64 `toml:"upper"`
-	// dist_from_mean
+	// dev_from_mean
 	AveragingWindow *int     `toml:"avg_window"`
 	Percent         *float64 `toml:"percent"`
 	Sigma           *float64 `toml:"sigma"`
@@ -127,7 +127,7 @@ type DetectionAlgorithm struct {
 	// threshold
 	lower *float64
 	upper *float64
-	// dist_from_mean
+	// dev_from_mean
 	averagingWindow int
 	percent         *float64
 	sigma           *float64
@@ -424,12 +424,12 @@ func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
 		if d.Lower != nil && d.Upper != nil && *d.Lower >= *d.Upper {
 			infoLog.Printf("Warning: 'lower' boundary is greater than 'upper'")
 		}
-	case "dist_from_mean":
+	case "dev_from_mean":
 		if d.Percent == nil && d.Sigma == nil {
-			return fmt.Errorf("either 'percent' or 'sigma' must be specified for 'dist_from_mean' detection method")
+			return fmt.Errorf("either 'percent' or 'sigma' must be specified for 'dev_from_mean' detection method")
 		}
 		if d.Percent != nil && d.Sigma != nil {
-			return fmt.Errorf("cannot specify both 'percent' and 'sigma' for 'dist_from_mean' detection method")
+			return fmt.Errorf("cannot specify both 'percent' and 'sigma' for 'dev_from_mean' detection method")
 		}
 		if d.Percent != nil && (*d.Percent <= 0 || *d.Percent >= 100) {
 			infoLog.Printf("Warning: 'percent=%f' not in range (0, 100)", *d.Percent)
@@ -438,7 +438,7 @@ func (d *DetectorConfig) validateDetectionAlgorithmConf() error {
 			return fmt.Errorf("'sigma' must be positive, got %f", *d.Sigma)
 		}
 		if d.AveragingWindow == nil {
-			return fmt.Errorf("'avg_window' must be specified for 'dist_from_mean' detection method")
+			return fmt.Errorf("'avg_window' must be specified for 'dev_from_mean' detection method")
 		}
 		if d.AveragingWindow != nil && *d.AveragingWindow <= 0 {
 			return fmt.Errorf("'avg_window' must be positive, got %d", *d.AveragingWindow)
@@ -563,7 +563,7 @@ func noConfChangeAlgDetection(alg *DetectionAlgorithm, c *DetectorConfig) bool {
 	if alg.detectionMethod == "threshold" {
 		same = ptrEqual(alg.lower, c.Lower) &&
 			ptrEqual(alg.upper, c.Upper)
-	} else if alg.detectionMethod == "dist_from_mean" {
+	} else if alg.detectionMethod == "dev_from_mean" {
 		//todo: remove duplicated code
 		var window int
 		if c.AveragingWindow != nil {
@@ -922,7 +922,7 @@ func (da *DetectionAlgorithm) Detect(points []Point) ([]MarkedPoint, error) {
 				IsOutlier:  isOutlier,
 			})
 		}
-	} else if da.detectionMethod == "dist_from_mean" {
+	} else if da.detectionMethod == "dev_from_mean" {
 		for i := range points {
 			if i < da.averagingWindow {
 				//todo: don't print for each point
