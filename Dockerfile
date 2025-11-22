@@ -5,12 +5,12 @@ RUN apk add --no-cache \
     git
 
 COPY main.go go.mod index.html style.css /app/
-COPY libs /app/libs
+COPY dist /app/dist
 
 WORKDIR /app
 RUN go get outliers
 RUN go build
-RUN rm -r main.go go.mod index.html style.css ./libs 
+RUN rm -r main.go go.mod index.html style.css ./dist 
 
 EXPOSE 9090
 
