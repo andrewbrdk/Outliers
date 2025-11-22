@@ -2,3 +2,4 @@ outliers
 go.sum
 pyvenv
 .vscode
+dist
