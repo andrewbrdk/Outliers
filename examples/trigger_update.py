@@ -31,5 +31,13 @@ def main():
 
     print(data)
 
+    response_ids = set(data["update_started"].keys())
+    response_titles = set(data["update_started"].values())
+    payload_ids = set([str(i) for i in payload["id"]])
+    payload_titles = set(payload["title"])
+    all_present = payload_ids.issubset(response_ids) and payload_titles.issubset(response_titles)
+    if data['status'] != 'ok' or not all_present:
+        sys.exit(f"Failed to start updates for all detectors, {payload}")
+
 if __name__ == "__main__":
     main()
